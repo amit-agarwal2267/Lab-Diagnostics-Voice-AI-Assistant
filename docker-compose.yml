@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  livekit-server:
+    image: livekit/livekit-server:latest
+    command: '--dev --bind 0.0.0.0 --keys "${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}"'
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    env_file:
+      - .env
+    environment:
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lab_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lab_password}
+      POSTGRES_DB: ${POSTGRES_DB:-lab_diagnostics}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    env_file:
+      - .env
+
+volumes:
+  pgdata:
