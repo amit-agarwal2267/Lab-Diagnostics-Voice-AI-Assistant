@@ -13,6 +13,9 @@ from app.core.state import UserData
 from app.core.agents.supervisor import SupervisorAgent
 from local_livekit_plugins import PiperTTS
 from app.config.config import get_settings
+from dotenv import load_dotenv
+
+load_dotenv()
 
 settings = get_settings()
 
@@ -25,20 +28,32 @@ async def entrypoint(ctx: JobContext):
         userdata=UserData(),
         stt=groq.STT(
             model=settings.stt_model,
-            api_key=settings.groq_api_key,
+            api_key=settings.groq_api_key.get_secret_value() if settings.groq_api_key else None,
             language="en",
         ),
         llm=google.LLM(
             model=settings.llm_model,
-            api_key=settings.google_api_key
+            api_key=settings.google_api_key.get_secret_value() if settings.google_api_key else None,
         ),
         tts=PiperTTS(
             model_path="models/piper/en_US-ryan-high.onnx",
             use_cuda=False,
-            speed=1.0,
+            speed=0.95,
         ),
         turn_handling=TurnHandlingOptions(
             turn_detection=inference.TurnDetector(),
+            endpointing={
+                "mode": "dynamic",
+                "min_delay": 0.8,
+                "max_delay": 3.5,
+            },
+            interruption={
+                "enabled": True,
+                "mode": "adaptive",
+                "min_duration": 0.7,
+                "min_words": 2,
+                "resume_false_interruption": True,
+            },
         ),
     )
 

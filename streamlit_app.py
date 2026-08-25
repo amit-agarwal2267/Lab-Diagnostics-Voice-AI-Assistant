@@ -5,6 +5,9 @@ import streamlit as st
 import streamlit.components.v1 as components
 from livekit import api
 from app.config.config import get_settings
+from dotenv import load_dotenv
+
+load_dotenv()
 
 settings = get_settings()
 
@@ -19,7 +22,10 @@ with open(_LIVEKIT_JS_PATH, "r", encoding="utf-8") as f:
 
 def create_room_token(identity: str, room_name: str) -> str:
     token = (
-        api.AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
+        api.AccessToken(
+            settings.livekit_api_key.get_secret_value(),
+            settings.livekit_api_secret.get_secret_value(),
+        )
         .with_identity(identity)
         .with_name(identity)
         .with_grants(
@@ -39,7 +45,11 @@ async def dispatch_agent(room_name: str) -> None:
     Required unless main.py's worker is registered for automatic dispatch.
     agent_name here MUST match whatever name main.py registers itself under.
     """
-    lk_api = api.LiveKitAPI(settings.livekit_url, settings.livekit_api_key, settings.livekit_api_secret)
+    lk_api = api.LiveKitAPI(
+        settings.livekit_url,
+        settings.livekit_api_key.get_secret_value(),
+        settings.livekit_api_secret.get_secret_value(),
+    )
     try:
         await lk_api.agent_dispatch.create_dispatch(
             api.CreateAgentDispatchRequest(agent_name=settings.livekit_agent_name, room=room_name)
@@ -98,21 +108,32 @@ else:
             }}
           }});
 
+          // Keep mic enabled for the whole call; never toggle it off.
+          room.on(LivekitClient.RoomEvent.LocalTrackUnpublished, async (pub) => {{
+            if (pub.kind === "audio" || pub.source === "microphone") {{
+              try {{
+                await room.localParticipant.setMicrophoneEnabled(true);
+              }} catch (e) {{}}
+            }}
+          }});
+
           let ready = false;
           async function markReady() {{
             if (ready) return;
             ready = true;
-            statusEl.innerText = "Agent ready – you can speak now.";
+            statusEl.innerText = "Agent ready – mic is on, you can speak anytime.";
             await room.localParticipant.setMicrophoneEnabled(true);
           }}
 
           try {{
             await room.connect("{settings.livekit_url}", "{token}");
-            statusEl.innerText = "Connected – waiting for agent...";
+            // Enable mic immediately on connect and leave it on for the full call.
+            await room.localParticipant.setMicrophoneEnabled(true);
+            statusEl.innerText = "Connected – mic on, waiting for agent...";
 
             setTimeout(() => {{
               if (!ready) {{
-                statusEl.innerText = "Agent is taking longer than expected. Still waiting...";
+                statusEl.innerText = "Agent is taking longer than expected. Mic is still on – still waiting...";
               }}
             }}, 8000);
           }} catch (err) {{

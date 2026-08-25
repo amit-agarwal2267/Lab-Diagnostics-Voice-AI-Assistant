@@ -8,10 +8,16 @@ class UserData:
     patient_phone: Optional[str] = None
     is_new_customer: bool = True
 
-    pending_tests: list[str] = field(default_factory=list)
+    centre_uuid: Optional[str] = None
+    centre_name: Optional[str] = None
+
+    pending_tests: list[str] = field(default_factory=list)          
+    pending_test_uuids: list[str] = field(default_factory=list)     
     requires_prescription: Optional[bool] = None
     prescription_upload_link_sent: bool = False
+
     mode_of_sample_collection: Optional[Literal["Visit Center", "Home Visit"]] = None
+
     mode_of_payment: Optional[Literal["UPI", "Cash on Visit"]] = None
     chosen_slot: Optional[str] = None
 
@@ -22,3 +28,6 @@ class UserData:
 
     def is_identity_verified(self) -> bool:
         return self.patient_uuid is not None
+
+    def is_centre_selected(self) -> bool:
+        return self.centre_uuid is not None
