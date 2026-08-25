@@ -55,22 +55,39 @@ def search_centres(
     All location filters are optional and AND-combined; omit a filter to
     not constrain by it. Set requires_home_visit / requires_visit_center
     to restrict to centres that support that collection mode.
+
+    City/state matching is token-aware: a spoken phrase like
+    "Kota Rajasthan" matches a row with city='Kota' (and optionally
+    state='Rajasthan') because each significant word is tried with ILIKE.
     """
     clauses = ["is_active = TRUE"]
     params: list = []
 
     if pincode:
+        # Exact match on pincode; strip spaces so "324 001" still works
         clauses.append("pincode = %s")
-        params.append(pincode)
+        params.append(pincode.replace(" ", "").strip())
     if city:
-        clauses.append("city ILIKE %s")
-        params.append(city)
+        city_tokens = _location_tokens(city)
+        if city_tokens:
+            # Match if the DB city equals/contains any token, OR any token
+            # contains the DB city (covers "Kota" vs "Kota Rajasthan")
+            token_clauses = []
+            for tok in city_tokens:
+                token_clauses.append("city ILIKE %s")
+                params.append(f"%{tok}%")
+            clauses.append("(" + " OR ".join(token_clauses) + ")")
     if state:
-        clauses.append("state ILIKE %s")
-        params.append(state)
+        state_tokens = _location_tokens(state)
+        if state_tokens:
+            token_clauses = []
+            for tok in state_tokens:
+                token_clauses.append("state ILIKE %s")
+                params.append(f"%{tok}%")
+            clauses.append("(" + " OR ".join(token_clauses) + ")")
     if country:
         clauses.append("country ILIKE %s")
-        params.append(country)
+        params.append(f"%{country.strip()}%")
     if requires_home_visit:
         clauses.append("supports_home_visit = TRUE")
     if requires_visit_center:
@@ -86,6 +103,17 @@ def search_centres(
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(query, params)
         return [dict(row) for row in cur.fetchall()]
+
+def _location_tokens(value: str) -> list[str]:
+    """Split a free-form location phrase into searchable tokens.
+
+    Drops tiny words (e.g. "in", "of") so "home visit in Kota, Rajasthan"
+    still yields ["Kota", "Rajasthan"].
+    """
+    import re
+
+    raw = re.split(r"[\s,;/|]+", (value or "").strip())
+    return [t for t in raw if len(t) >= 3]
 
 def get_centre_by_code(code: str) -> dict | None:
     with get_connection() as conn, conn.cursor() as cur:
@@ -199,8 +227,17 @@ def get_patient_by_details(name: str, age: int, phone: str) -> dict | None:
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT uuid, name, phone_number FROM patient "
-            "WHERE name ILIKE %s AND age = %s "
-            "AND RIGHT(phone_number, 4) = RIGHT(%s, 4)",
+            "WHERE name ILIKE %s AND age = %s AND RIGHT(phone_number,4)=RIGHT(%s,4)",
+            (name, age, phone),
+        )
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+
+        cur.execute(
+            "SELECT uuid, name, phone_number FROM patient "
+            "WHERE dmetaphone(name) = dmetaphone(%s) AND age = %s "
+            "AND RIGHT(phone_number,4) = RIGHT(%s,4)",
             (name, age, phone),
         )
         row = cur.fetchone()
@@ -240,7 +277,6 @@ def get_report_tests(report_uuid: str) -> list[dict]:
         return [dict(row) for row in cur.fetchall()]
 
 def resend_report(report_uuid: str, channel: str) -> None:
-    
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE report SET last_resent_at = %s, last_resent_channel = %s WHERE uuid = %s",

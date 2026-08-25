@@ -66,7 +66,7 @@ Supervisor Agent (Router)
 
 | Component | Technology | Why |
 |-----------|------------|-----|
-| **STT** | Groq Whisper Large v3 Turbo | Sub-second latency, high accuracy for medical terms |
+| **STT** | Groq Whisper Large v3 Turbo | Sub-second latency, low cost — see [known limitation](#-known-limitations--tradeoffs) on Indian name accuracy |
 | **LLM** | Google Gemini 3.5 Flash Lite | Fast inference, strong function-calling, cost-effective |
 | **TTS** | Piper (HuggingFace) — `en_US-ryan-high.onnx` | Offline, natural voice, no API costs |
 | **Noise Cancellation** | LiveKit BVC (Browser Voice Cancellation) | Real-time denoising for telephony audio |
@@ -90,8 +90,17 @@ ticket              -- Support escalation (open/resolved/escalated)
 **Migration Strategy:**
 - Version-controlled schema via Alembic (10 migrations)
 - `pgcrypto` extension for UUID generation
+- `fuzzystrmatch` + `pg_trgm` extensions for phonetic/similarity name & city matching
 - Partial indexes for performance (e.g., `WHERE is_booked = FALSE`)
 - Foreign key constraints with cascade deletes
+
+### 🔤 Fuzzy Name & City Matching
+
+Real callers' names and cities are frequently mis-transcribed by STT. Identity/record lookups use a two-tier strategy:
+1. **Exact/ILIKE match** first, pinned on hard filters (age + last-4 phone digits — never fuzzy).
+2. **Phonetic fallback** (`dmetaphone`) for names, and **trigram similarity** (`pg_trgm`) for city, when the exact tier misses.
+
+This closes most of the gap for *matching against existing DB records*; it does **not** fix what gets transcribed or stored in the first place — see tradeoffs below.
 
 ### 🔐 Security & Privacy
 
@@ -100,16 +109,17 @@ ticket              -- Support escalation (open/resolved/escalated)
 - **No PII in Logs** — Structured logging with sensitive data redaction
 - **Environment-based Config** — All secrets via `.env` (never committed)
 - **SQL Injection Prevention** — Parameterized queries via psycopg2
+- **⚠️ Medical-advice guardrail** — not yet implemented (see [Recommended for v1](#-recommended-for-v1-release))
 
-### 🚀 Production-Ready Infrastructure
+### 🚀 Infrastructure
 
-#### Docker Compose Stack
+#### Docker Compose Stack (current)
 ```yaml
 services:
   livekit-server:   # Media server (WebRTC/SIP)
   postgres:         # PostgreSQL 16 with persistent volume
-  # Add: voice-agent worker, streamlit dashboard, nginx reverse proxy
 ```
+> The application worker and Streamlit dashboard are **not yet containerized** — no `Dockerfile` exists for either at this stage; both are run directly via `python main.py` / `streamlit run`. Containerizing them is on the v1 checklist.
 
 #### Configuration Management (Pydantic Settings)
 ```python
@@ -124,8 +134,9 @@ LOG_LEVEL, ENVIRONMENT (development/staging/production)
 ```
 
 #### Health & Observability
-- **Structured Logging** — Configurable levels (DEBUG/INFO/WARNING/ERROR)
-- **Graceful Shutdown** — LiveKit agent lifecycle hooks
+- **Health/readiness endpoints** — `/healthz`, `/readyz` (DB connectivity check)
+- **Structured Logging** — JSON logs, configurable levels (DEBUG/INFO/WARNING/ERROR)
+- **LiveKit session metrics** — collected and logged (`metrics_collected`, `session_usage_updated`), but **not yet exported to any monitoring/alerting tool** (no Prometheus/Grafana/PagerDuty wiring — logs only, for now)
 - **Connection Pooling** — psycopg2 per-request connections (stateless workers)
 - **Error Boundaries** — Tool-level try/catch with user-friendly messages
 
@@ -135,7 +146,7 @@ LOG_LEVEL, ENVIRONMENT (development/staging/production)
 voice-ai-agent/
 ├── main.py                    # LiveKit agent worker entrypoint
 ├── streamlit_app.py           # Web demo / testing UI
-├── docker-compose.yml         # Local dev stack (LiveKit + Postgres)
+├── docker-compose.yml         # Local dev stack (LiveKit + Postgres only)
 ├── pyproject.toml             # Dependencies (uv-managed)
 ├── .env.example               # Template for environment variables
 ├── alembic.ini                # Migration config
@@ -152,8 +163,8 @@ voice-ai-agent/
 │   │       ├── report_status.py
 │   │       └── ticket.py
 │   └── db/
-│       ├── client.py          # Raw SQL helpers (psycopg2)
-│       └── migrations/        # Alembic versions (10 migrations)
+│       ├── client.py          # Raw SQL helpers (psycopg2), incl. fuzzy match
+│       └── migrations/        # Alembic versions (10+ migrations)
 ├── tests/
 │   └── db/                    # Pytest suite with fixtures
 ├── models/
@@ -165,10 +176,9 @@ voice-ai-agent/
 
 ### Prerequisites
 - Python 3.12+
-- Docker & Docker Compose
-- PostgreSQL 16 (or use compose)
+- Docker & Docker Compose (for Postgres + LiveKit media server)
 - LiveKit Cloud account or self-hosted server
-- Google AI API key (Gemini)
+- Google AI API key(s) (Gemini) — see LLM fallback note below
 - Groq API key (Whisper STT)
 
 ### Quick Start
@@ -181,7 +191,7 @@ cd voice-ai-agent
 cp .env.example .env
 # Edit .env with your keys
 
-# 3. Start infrastructure
+# 3. Start infrastructure (Postgres + LiveKit only — app is not containerized yet)
 docker-compose up -d
 
 # 4. Run migrations
@@ -190,10 +200,10 @@ alembic -c app/db/alembic.ini upgrade head
 # 5. Seed test data (optional)
 docker compose exec -T postgres psql -U lab_admin -d lab_diagnostics < db/scripts/mock_data.sql
 
-# 6. Start voice agent worker
+# 6. Start voice agent worker (runs on host, not in a container)
 python main.py
 
-# 7. (Optional) Launch Streamlit demo
+# 7. (Optional) Launch Streamlit demo (also runs on host)
 streamlit run streamlit_app.py
 ```
 
@@ -204,7 +214,7 @@ streamlit run streamlit_app.py
 | `LIVEKIT_URL` | ✅ | — | WebSocket URL (e.g., `wss://your-project.livekit.cloud`) |
 | `LIVEKIT_API_KEY` | ✅ | — | LiveKit API key |
 | `LIVEKIT_API_SECRET` | ✅ | — | LiveKit API secret |
-| `GOOGLE_API_KEY` | ✅ | — | Google AI Studio key for Gemini |
+| `GOOGLE_API_KEY` | ✅ | — | Google AI Studio key for Gemini (primary) |
 | `GROQ_API_KEY` | ✅ | — | Groq key for Whisper STT |
 | `DB_URL` | ✅ | — | PostgreSQL connection string |
 | `LLM_MODEL` | ❌ | `gemini-3.5-flash-lite` | LLM model identifier |
@@ -229,32 +239,64 @@ pytest tests/db/test_client.py -v
 - Database connection & CRUD operations
 - Slot reservation & conflict handling
 - Identity verification (partial phone matching)
+- Fuzzy name/city matching (dmetaphone / trigram)
 - Appointment creation (prescription vs payment flows)
 - Report status & resend logic
 - Ticket creation (with/without patient)
 - Report expiration cleanup
+
+> No CI/CD pipeline runs these yet — currently local/manual only. A golden-dataset eval suite (agent tool-call correctness + STT word-error-rate on Indian names) is planned but not built.
+
+## ⚖️ Known Limitations & Tradeoffs
+
+Documented deliberately — these are conscious, budget/timeline-driven decisions, not oversights.
+
+### 1. STT: Whisper (via Groq) instead of Sarvam AI
+Groq Whisper Large v3 Turbo was chosen for latency and cost, but it is **not** tuned for Indian names/accents — mis-transcriptions like "Agarwal" → "Akarwal" are common and directly affect patient-record accuracy. **Sarvam AI** (India-specific STT, e.g. Saarika) is the intended production replacement and is expected to perform meaningfully better on this exact failure mode.
+
+**Interim mitigations (planned, not yet implemented):**
+- **Prompt-biasing** — feeding Whisper a curated list of common Indian names/cities/test names via its `prompt` parameter to bias decoding.
+- **Spell-back confirmation** — having the agent read back a captured name letter-by-letter for explicit caller confirmation before it's used downstream, closing the loop with the one person who actually knows the correct spelling.
+
+These reduce the *visible* impact of the underlying STT weakness for a demo/prototype; they are not a substitute for migrating to a better-suited STT provider, which is the planned production fix.
+
+### 2. LLM fallback: same-provider key rotation, not multi-provider
+The LLM fallback is currently `llm.FallbackAdapter([gemini_1, gemini_2, gemini_3])` — three Gemini instances on **different API keys**, not different providers. This protects against hitting a single key's rate limit (e.g. Google's free-tier 15 req/min) but does **not** protect against a Gemini-wide outage or systemic issue, since all three fallbacks share the same upstream provider.
+
+This is a deliberate budget tradeoff: a true multi-provider fallback (e.g. adding Groq/Llama or another vendor as a second provider) would improve resilience further but adds cost and a need to validate function-calling parity on a different model family — deferred until budget allows.
 
 ## 📈 Production Checklist
 
 ### ✅ Completed
 - [x] Multi-agent architecture with clean handoffs
 - [x] Database schema with migrations & indexes
-- [x] Comprehensive test suite
+- [x] Fuzzy name/city matching (fuzzystrmatch, pg_trgm)
+- [x] Health/readiness endpoints
+- [x] Structured (JSON) logging
+- [x] Unit test suite
 - [x] Environment-based configuration
-- [x] Docker Compose for local dev
+- [x] Docker Compose for Postgres + LiveKit media server
 - [x] Noise cancellation & turn detection
 - [x] Offline TTS (no external API dependency)
 - [x] Identity verification with attempt limiting
 - [x] Prescription & payment link generation
 - [x] Report TTL & storage cleanup utilities
-- [x] Structured logging
+- [x] LLM fallback across multiple Gemini API keys (same-provider only — see tradeoffs)
+- [x] LiveKit session metrics collection (logged, not yet exported)
 - [x] Streamlit demo for manual testing
 
 ### 🚧 Recommended for v1 Release
-- [ ] **Load Testing** — Concurrent call simulation (k6/Locust)
-- [ ] **Monitoring** — Prometheus metrics + Grafana dashboards
-- [ ] **Alerting** — PagerDuty/Slack for failed calls, DB errors
+- [ ] **Medical-advice guardrail** — deterministic (regex-based) interception before any medically-sensitive query reaches the LLM; agent should defer to a doctor rather than answer
+- [ ] **Spell-back name confirmation** in booking flow
+- [ ] **Whisper prompt-biasing** with common Indian name/city vocabulary (interim STT mitigation)
+- [ ] **Migrate STT to Sarvam AI** (production fix for Indian-name accuracy)
+- [ ] **True multi-provider LLM fallback** (e.g. add a non-Gemini provider), budget permitting
 - [ ] **CI/CD** — GitHub Actions: lint → test → build → deploy
+- [ ] **Golden-dataset eval suite** — tool-call correctness (text-level) + STT word-error-rate benchmark on Indian names
+- [ ] **Containerize application worker & Streamlit app** (Dockerfiles)
+- [ ] **Monitoring** — export existing LiveKit metrics to Prometheus/Grafana (metrics are already collected, just not connected to a dashboard)
+- [ ] **Alerting** — PagerDuty/Slack for failed calls, DB errors
+- [ ] **Load Testing** — Concurrent call simulation (k6/Locust)
 - [ ] **Secrets Management** — HashiCorp Vault / AWS Secrets Manager
 - [ ] **TLS Termination** — Nginx/Traefik reverse proxy for LiveKit
 - [ ] **Rate Limiting** — Per-caller API quotas
@@ -266,8 +308,8 @@ pytest tests/db/test_client.py -v
 
 | Component | Cost Model | Optimization |
 |-----------|------------|--------------|
-| **STT (Groq)** | Per-minute | Whisper Turbo = ~$0.006/min |
-| **LLM (Gemini)** | Per-token | Flash Lite = ~$0.075/1M tokens |
+| **STT (Groq)** | Per-minute | Whisper Turbo = ~$0.006/min (accuracy tradeoff noted above) |
+| **LLM (Gemini)** | Per-token | Flash Lite = ~$0.075/1M tokens; multi-key fallback for rate-limit resilience at $0 extra cost |
 | **TTS (Piper)** | Free (local) | Zero marginal cost |
 | **LiveKit** | Per-minute | Self-hosted = infrastructure only |
 | **PostgreSQL** | Instance | Right-size; read replicas for analytics |

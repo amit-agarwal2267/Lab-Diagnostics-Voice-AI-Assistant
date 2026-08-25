@@ -68,7 +68,7 @@ def _attach_metrics(session: AgentSession, ctx: JobContext) -> None:
         m = getattr(ev, "metrics", ev)
         try:
             metrics.log_metrics(m)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("metrics.log_metrics failed", exc_info=True)
 
         try:
@@ -137,6 +137,7 @@ async def entrypoint(ctx: JobContext):
             use_cuda=False,
             speed=0.95,
         ),
+        max_tool_steps=8,
         turn_handling=TurnHandlingOptions(
             turn_detection=inference.TurnDetector(),
             endpointing={

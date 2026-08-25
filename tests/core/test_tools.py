@@ -74,7 +74,7 @@ async def test_resolve_home_visit_no_service():
 async def test_resolve_home_visit_sets_userdata():
     from app.core import tools
 
-    centre = {"uuid": "c-1", "name": "Home Lab", "city": "Kota"}
+    centre = {"uuid": "c-1", "name": "Home Lab", "city": "Kota", "state": "Rajasthan"}
     with patch("app.core.tools.search_centres", return_value=[centre]):
         ctx = _ctx()
         result = await tools.resolve_home_visit_centre(
@@ -83,6 +83,28 @@ async def test_resolve_home_visit_sets_userdata():
     assert "Home Lab" in result
     assert ctx.userdata.centre_uuid == "c-1"
     assert ctx.userdata.centre_name == "Home Lab"
+    assert ctx.userdata.mode_of_sample_collection == "Home Visit"
+
+@pytest.mark.asyncio
+async def test_resolve_home_visit_kota_rajasthan_phrase():
+    """Agent may pass the full spoken phrase as city."""
+    from app.core import tools
+
+    centre = {
+        "uuid": "c1111111-1111-1111-1111-111111111111",
+        "name": "Main Diagnostics Kota",
+        "city": "Kota",
+        "state": "Rajasthan",
+    }
+    with patch("app.core.tools.search_centres", return_value=[centre]) as mock_search:
+        ctx = _ctx()
+        result = await tools.resolve_home_visit_centre(
+            pincode=None, city="Kota Rajasthan", context=ctx, state=None
+        )
+    assert "NO_SERVICE" not in result
+    assert "Main Diagnostics Kota" in result
+    mock_search.assert_called()
+    assert ctx.userdata.centre_uuid == centre["uuid"]
 
 @pytest.mark.asyncio
 async def test_select_visit_centre_by_code():

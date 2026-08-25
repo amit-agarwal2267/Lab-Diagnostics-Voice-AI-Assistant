@@ -90,6 +90,23 @@ def test_search_centres_unmatched_location_returns_empty():
 
     assert results == []
 
+
+def test_search_centres_matches_city_within_spoken_phrase():
+    """STT often yields 'Kota Rajasthan'; DB city is just 'Kota'."""
+    results = client.search_centres(city="Kota Rajasthan", requires_home_visit=True)
+
+    assert len(results) >= 1
+    assert any(c["city"].lower() == "kota" for c in results)
+    assert all(c["supports_home_visit"] for c in results)
+
+
+def test_search_centres_matches_city_alone():
+    results = client.search_centres(city="Kota", requires_home_visit=True)
+
+    assert len(results) >= 1
+    assert any("kota" in c["city"].lower() for c in results)
+
+
 def test_get_centre_by_code_existing(any_active_centre_uuid):
     with client.get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT code FROM centre WHERE uuid = %s", (any_active_centre_uuid,))
@@ -407,13 +424,11 @@ def test_clear_report_storage_path():
 
 def test_create_ticket():
     patient_uuid = "e1111111-1111-1111-1111-111111111111"
-
     ticket_id = client.create_ticket(
         patient_uuid=patient_uuid,
         category="email_correction",
         description="Please update my email address.",
     )
-
     try:
         with client.get_connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -426,13 +441,11 @@ def test_create_ticket():
             )
 
             ticket = cur.fetchone()
-
         assert ticket["uuid"] == ticket_id
         assert str(ticket["patient_uuid"]) == patient_uuid
         assert ticket["category"] == "email_correction"
         assert ticket["description"] == "Please update my email address."
         assert ticket["status"] == "open"
-
     finally:
         with client.get_connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -447,7 +460,6 @@ def test_create_ticket_without_patient():
         category="general",
         description="General support request.",
     )
-
     try:
         with client.get_connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -458,13 +470,10 @@ def test_create_ticket_without_patient():
                 """,
                 (ticket_id,),
             )
-
             ticket = cur.fetchone()
-
         assert ticket["patient_uuid"] is None
         assert ticket["category"] == "general"
         assert ticket["status"] == "open"
-
     finally:
         with client.get_connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -478,11 +487,8 @@ def test_generate_prescription_upload_link(monkeypatch):
         "PRESCRIPTION_UPLOAD_BASE_URL",
         "https://test.example.com/upload",
     )
-
     appointment_id = "abc-123"
-
     result = client.generate_prescription_upload_link(appointment_id)
-
     assert result == "https://test.example.com/upload/abc-123"
 
 def test_generate_payment_link(monkeypatch):
@@ -490,9 +496,6 @@ def test_generate_payment_link(monkeypatch):
         "PAYMENT_BASE_URL",
         "https://test.example.com/pay",
     )
-
     appointment_id = "abc-123"
-
     result = client.generate_payment_link(appointment_id)
-
     assert result == "https://test.example.com/pay/abc-123"

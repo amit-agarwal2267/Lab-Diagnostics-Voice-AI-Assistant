@@ -43,7 +43,6 @@ def _safe_tool(fn: F) -> F:
             result = await fn(*args, **kwargs)
             return result if isinstance(result, str) else str(result)
         except ValueError as exc:
-            # DB helpers often raise ValueError with a clear message
             msg = str(exc).strip() or _GENERIC_TOOL_ERROR
             logger.warning("Tool %s ValueError: %s", fn.__name__, msg)
             return msg
@@ -52,6 +51,56 @@ def _safe_tool(fn: F) -> F:
             return _GENERIC_TOOL_ERROR
 
     return wrapper
+
+def _normalize_slot_date(date: str) -> str:
+    """Convert relative / spoken dates to YYYY-MM-DD (UTC calendar date).
+
+    Accepts: today, tomorrow, day after tomorrow, YYYY-MM-DD, DD/MM/YYYY,
+    DD-MM-YYYY, and phrases like "24 August 2026" / "August 24 2026".
+    """
+    from datetime import datetime, timedelta, UTC
+    import re
+
+    raw = (date or "").strip().lower()
+    today = datetime.now(UTC).date()
+
+    if raw in ("today", "todays", "to day"):
+        return today.isoformat()
+    if raw in ("tomorrow", "tommorow", "tomorow"):
+        return (today + timedelta(days=1)).isoformat()
+    if raw in ("day after tomorrow", "day after tommorow"):
+        return (today + timedelta(days=2)).isoformat()
+
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        return raw
+
+    m = re.fullmatch(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", raw)
+    if m:
+        d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        return f"{y:04d}-{mo:02d}-{d:02d}"
+
+    months = {
+        "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+        "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6,
+        "july": 7, "jul": 7, "august": 8, "aug": 8, "september": 9, "sep": 9,
+        "october": 10, "oct": 10, "november": 11, "nov": 11, "december": 12, "dec": 12,
+    }
+    tokens = re.findall(r"[a-z0-9]+", raw)
+    month_num = day = year = None
+    for t in tokens:
+        if t in months:
+            month_num = months[t]
+        elif t.isdigit():
+            n = int(t)
+            if n > 31:
+                year = n
+            elif day is None:
+                day = n
+            elif month_num is None and 1 <= n <= 12:
+                month_num = n
+    if year and month_num and day:
+        return f"{year:04d}-{month_num:02d}-{day:02d}"
+    return date.strip()
 
 @function_tool
 @_safe_tool
@@ -244,11 +293,30 @@ async def check_prescription_requirement(
 async def get_slots(date: str, context: RunContext[UserData]) -> str:
     """List available appointment slots for a given date at the
     already-resolved centre. The centre must already be set via
-    resolve_home_visit_centre or select_visit_centre."""
+    resolve_home_visit_centre or select_visit_centre.
+
+    Pass `date` as YYYY-MM-DD, or a relative word the tool understands:
+    "today", "tomorrow", "day after tomorrow", or a spoken date like
+    "24 August 2026". Call this ONCE per requested date — do not retry
+    the same date if the result is empty; instead tell the caller and
+    offer another day.
+    """
     if not context.userdata.is_centre_selected():
         return "No centre resolved yet. Determine mode of sample collection and resolve the centre first."
-    slots = get_available_slots(centre_uuid=context.userdata.centre_uuid, date=date)
-    return ", ".join(slots) if slots else "No slots available on that date."
+
+    resolved = _normalize_slot_date(date)
+    slots = get_available_slots(
+        centre_uuid=context.userdata.centre_uuid, date=resolved
+    )
+    if slots:
+        return f"Available slots on {resolved}: " + ", ".join(slots)
+
+    return (
+        f"No slots available on {resolved}. "
+        "Tell the caller that date is full or has no openings, and ask them "
+        "to pick another day (for example tomorrow). Do NOT call get_slots "
+        "again for the same date."
+    )
 
 @function_tool
 @_safe_tool
