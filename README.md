@@ -185,14 +185,12 @@ cp .env.example .env
 docker-compose up -d
 
 # 4. Run migrations
-cd app/db
-alembic upgrade head
+alembic -c app/db/alembic.ini upgrade head
 
 # 5. Seed test data (optional)
-psql $DB_URL -f tests/db/scripts/mock_data.sql
+docker compose exec -T postgres psql -U lab_admin -d lab_diagnostics < db/scripts/mock_data.sql
 
 # 6. Start voice agent worker
-cd ../..
 python main.py
 
 # 7. (Optional) Launch Streamlit demo
