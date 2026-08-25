@@ -1,7 +1,6 @@
 # app/core/config.py
 from functools import lru_cache
 from typing import Literal, Optional
-
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -39,6 +38,15 @@ class Settings(BaseSettings):
     )
     max_verification_attempts: int = Field(2, alias="MAX_VERIFICATION_ATTEMPTS")
     report_ttl_days: int = Field(14, alias="REPORT_TTL_DAYS")
+
+    health_host: str = Field("0.0.0.0", alias="HEALTH_HOST")
+    health_port: int = Field(8080, alias="HEALTH_PORT")
+
+    num_idle_processes: int = Field(2, alias="NUM_IDLE_PROCESSES")
+    load_threshold: float = Field(0.75, alias="LOAD_THRESHOLD")
+    job_memory_warn_mb: float = Field(1000, alias="JOB_MEMORY_WARN_MB")
+    job_memory_limit_mb: float = Field(0, alias="JOB_MEMORY_LIMIT_MB")
+    drain_timeout: int = Field(1800, alias="DRAIN_TIMEOUT")
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = Field(
         "INFO", alias="LOG_LEVEL"

@@ -1,3 +1,6 @@
+import logging
+from functools import wraps
+from typing import Any, Callable, TypeVar
 from livekit.agents.llm import function_tool
 from livekit.agents.voice import RunContext
 from app.core.state import UserData
@@ -19,7 +22,39 @@ from app.db.client import (
     create_ticket,
 )
 
+logger = logging.getLogger(__name__)
+
+F = TypeVar("F", bound=Callable[..., Any])
+
+_GENERIC_TOOL_ERROR = (
+    "Sorry, something went wrong on our side while handling that. "
+    "Please try again in a moment, or I can raise a support ticket for you."
+)
+
+def _safe_tool(fn: F) -> F:
+    """Wrap a function tool so unexpected exceptions become a spoken error string
+    instead of crashing the agent turn. Known ValueError messages from the DB
+    layer are passed through when they are already user-facing.
+    """
+
+    @wraps(fn)
+    async def wrapper(*args: Any, **kwargs: Any) -> str:
+        try:
+            result = await fn(*args, **kwargs)
+            return result if isinstance(result, str) else str(result)
+        except ValueError as exc:
+            # DB helpers often raise ValueError with a clear message
+            msg = str(exc).strip() or _GENERIC_TOOL_ERROR
+            logger.warning("Tool %s ValueError: %s", fn.__name__, msg)
+            return msg
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Tool %s failed unexpectedly", fn.__name__)
+            return _GENERIC_TOOL_ERROR
+
+    return wrapper
+
 @function_tool
+@_safe_tool
 async def find_centres(
     context: RunContext[UserData],
     pincode: str | None = None,
@@ -50,6 +85,7 @@ async def find_centres(
     return "\n".join(lines)
 
 @function_tool
+@_safe_tool
 async def get_lab_test_prices(
     context: RunContext[UserData],
     query: str | None = None,
@@ -70,6 +106,7 @@ async def get_lab_test_prices(
     return "\n".join(lines)
 
 @function_tool
+@_safe_tool
 async def resolve_home_visit_centre(
     pincode: str | None,
     city: str,
@@ -105,6 +142,7 @@ async def resolve_home_visit_centre(
     return f"Home visit will be served by {centre['name']} ({centre['city']})."
 
 @function_tool
+@_safe_tool
 async def select_visit_centre(
     centre_code_or_city: str,
     context: RunContext[UserData],
@@ -134,6 +172,7 @@ async def select_visit_centre(
     return f"Centre selected: {centre['name']} ({centre['city']})."
 
 @function_tool
+@_safe_tool
 async def verify_patient_identity(
     name: str,
     age: int,
@@ -163,6 +202,7 @@ async def verify_patient_identity(
     return "No matching record found. Please double check the details and try again."
 
 @function_tool
+@_safe_tool
 async def check_prescription_requirement(
     test_names: list[str],
     context: RunContext[UserData],
@@ -171,7 +211,20 @@ async def check_prescription_requirement(
     and return each test's pre-test instructions (e.g. fasting requirements).
     Call this after a centre has been selected.
     """
-    infos = [get_test_info(t) for t in test_names]
+    if not test_names:
+        return "No test names provided. Ask the caller which tests they need."
+
+    infos = []
+    unknown = []
+    for t in test_names:
+        try:
+            infos.append(get_test_info(t))
+        except ValueError:
+            unknown.append(t)
+
+    if unknown and not infos:
+        return f"Unknown test(s): {', '.join(unknown)}. Ask the caller to confirm the test names."
+
     context.userdata.pending_tests = [i["test_name"] for i in infos]
     context.userdata.pending_test_uuids = [i["uuid"] for i in infos]
     context.userdata.requires_prescription = any(i["requires_prescription"] for i in infos)
@@ -181,9 +234,13 @@ async def check_prescription_requirement(
         + (f", instructions: {i['pre_test_instructions']}" if i.get("pre_test_instructions") else "")
         for i in infos
     ]
-    return "\n".join(lines) + f"\nPrescription required: {context.userdata.requires_prescription}"
+    suffix = f"\nPrescription required: {context.userdata.requires_prescription}"
+    if unknown:
+        suffix += f"\nCould not find: {', '.join(unknown)}"
+    return "\n".join(lines) + suffix
 
 @function_tool
+@_safe_tool
 async def get_slots(date: str, context: RunContext[UserData]) -> str:
     """List available appointment slots for a given date at the
     already-resolved centre. The centre must already be set via
@@ -194,12 +251,16 @@ async def get_slots(date: str, context: RunContext[UserData]) -> str:
     return ", ".join(slots) if slots else "No slots available on that date."
 
 @function_tool
+@_safe_tool
 async def select_slot(slot_datetime: str, context: RunContext[UserData]) -> str:
     """Record the caller's chosen appointment slot after confirming availability."""
+    if not slot_datetime or not str(slot_datetime).strip():
+        return "No slot provided. Ask the caller to pick a time."
     context.userdata.chosen_slot = slot_datetime
     return f"Slot {slot_datetime} noted."
 
 @function_tool
+@_safe_tool
 async def finalize_appointment(
     patient_name: str,
     patient_age: int,
@@ -222,6 +283,8 @@ async def finalize_appointment(
         return "No slot selected. Call select_slot before finalizing."
     if not context.userdata.pending_test_uuids:
         return "No tests selected. Call check_prescription_requirement before finalizing."
+    if not patient_name or not patient_email:
+        return "Patient name and email are required before finalizing."
 
     context.userdata.patient_name = patient_name
     context.userdata.mode_of_sample_collection = mode_of_sample_collection
@@ -239,7 +302,7 @@ async def finalize_appointment(
         centre_uuid=context.userdata.centre_uuid,
         test_uuids=context.userdata.pending_test_uuids,
         slot=context.userdata.chosen_slot,
-        requires_prescription=context.userdata.requires_prescription,
+        requires_prescription=bool(context.userdata.requires_prescription),
         mode_of_sample_collection=mode_of_sample_collection,
         mode_of_payment=mode_of_payment,
     )
@@ -256,6 +319,7 @@ async def finalize_appointment(
     return f"Appointment booked. Complete payment here: {payment_link}."
 
 @function_tool
+@_safe_tool
 async def check_report_status(context: RunContext[UserData]) -> str:
     """Check whether the caller's lab report is ready. Requires identity
     verification first via verify_patient_identity.
@@ -263,7 +327,11 @@ async def check_report_status(context: RunContext[UserData]) -> str:
     if not context.userdata.is_identity_verified():
         return "Identity not verified yet."
 
-    report = get_report_status(context.userdata.patient_uuid)
+    try:
+        report = get_report_status(context.userdata.patient_uuid)
+    except ValueError as exc:
+        return str(exc) if str(exc).strip() else "No report found for this patient."
+
     if report["status"] == "ready":
         resend_report(report["uuid"], channel="email")
         tests = get_report_tests(report["uuid"])
@@ -272,6 +340,7 @@ async def check_report_status(context: RunContext[UserData]) -> str:
     return "Report is still being processed."
 
 @function_tool
+@_safe_tool
 async def update_email_on_file(
     new_email: str,
     context: RunContext[UserData],
@@ -281,10 +350,13 @@ async def update_email_on_file(
     """
     if not context.userdata.is_identity_verified():
         return "Identity not verified yet."
+    if not new_email or "@" not in new_email:
+        return "That does not look like a valid email. Ask the caller to confirm the address."
     update_patient_email(context.userdata.patient_uuid, new_email)
     return "Email updated successfully."
 
 @function_tool
+@_safe_tool
 async def raise_ticket(
     category: str,
     description: str,
@@ -294,9 +366,11 @@ async def raise_ticket(
     - new customers with a general inquiry (no verification needed)
     - failed identity verification after repeated attempts
     """
+    if not description or not str(description).strip():
+        return "A short description is required before raising a ticket."
     create_ticket(
-        patient_uuid=context.userdata.patient_uuid,   
-        category=category,
+        patient_uuid=context.userdata.patient_uuid,
+        category=category or "general",
         description=description,
     )
     return "Ticket raised. An executive will call you back shortly."
