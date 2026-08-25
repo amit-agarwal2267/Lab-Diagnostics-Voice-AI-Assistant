@@ -26,8 +26,6 @@ settings = get_settings()
 configure_logging(settings.log_level)
 logger = logging.getLogger("voice-agent")
 
-start_health_server(host=settings.health_host, port=settings.health_port)
-
 server = AgentServer(
     num_idle_processes=settings.num_idle_processes,
     load_threshold=settings.load_threshold,
@@ -35,7 +33,6 @@ server = AgentServer(
     job_memory_limit_mb=settings.job_memory_limit_mb,
     drain_timeout=settings.drain_timeout,
 )
-
 
 def _prewarm(proc: JobProcess) -> None:
     """Runs once per idle process before any job is assigned.
@@ -47,9 +44,7 @@ def _prewarm(proc: JobProcess) -> None:
         extra={"pid": proc.pid if hasattr(proc, "pid") else None},
     )
 
-
 server.setup_fnc = _prewarm
-
 
 def _metrics_to_dict(m) -> dict:
     """Best-effort conversion of a metrics object to a JSON-serializable dict."""
@@ -73,7 +68,7 @@ def _attach_metrics(session: AgentSession, ctx: JobContext) -> None:
         m = getattr(ev, "metrics", ev)
         try:
             metrics.log_metrics(m)
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.debug("metrics.log_metrics failed", exc_info=True)
 
         try:
@@ -120,7 +115,6 @@ def _attach_metrics(session: AgentSession, ctx: JobContext) -> None:
         )
 
     ctx.add_shutdown_callback(_log_usage_on_shutdown)
-
 
 @server.rtc_session(agent_name=settings.livekit_agent_name)
 async def entrypoint(ctx: JobContext):
@@ -173,6 +167,8 @@ async def entrypoint(ctx: JobContext):
     )
 
 if __name__ == "__main__":
+    start_health_server(host=settings.health_host, port=settings.health_port)
+
     logger.info(
         "Starting agent server",
         extra={
