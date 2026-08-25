@@ -1,4 +1,4 @@
-from livekit.agents import Agent
+from app.core.agents.guarded_agent import GuardedAgent
 from livekit.agents.llm import function_tool
 from livekit.agents.voice import RunContext
 
@@ -12,7 +12,7 @@ from app.core.tools import (
 )
 
 
-class AppointmentAgent(Agent):
+class AppointmentAgent(GuardedAgent):
     def __init__(self, chat_ctx=None) -> None:
         super().__init__(
             instructions=APPOINTMENT_INSTRUCTIONS,

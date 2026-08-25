@@ -127,6 +127,7 @@ async def entrypoint(ctx: JobContext):
             model=settings.stt_model,
             api_key=settings.groq_api_key.get_secret_value() if settings.groq_api_key else None,
             language="en",
+            prompt="Common Indian names: Agarwal, Sharma, Gupta, Kumar, Reddy, Iyer, Patel, Nair, Chatterjee, Bhatt, Rajasthan, Kota, Jaipur, Udaipur, CBC, lipid profile, thyroid panel",
         ),
         llm=google.LLM(
             model=settings.llm_model,

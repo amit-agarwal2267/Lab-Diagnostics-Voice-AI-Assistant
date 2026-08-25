@@ -1,4 +1,4 @@
-from livekit.agents import Agent
+from app.core.agents.guarded_agent import GuardedAgent
 from livekit.agents.llm import function_tool
 from livekit.agents.voice import RunContext
 
@@ -11,7 +11,7 @@ from app.core.tools import (
 )
 
 
-class ReportStatusAgent(Agent):
+class ReportStatusAgent(GuardedAgent):
     def __init__(self, chat_ctx=None) -> None:
         super().__init__(
             instructions=REPORT_STATUS_INSTRUCTIONS,

@@ -1,4 +1,4 @@
-from livekit.agents import Agent
+from app.core.agents.guarded_agent import GuardedAgent
 from livekit.agents.llm import function_tool
 from livekit.agents.voice import RunContext
 
@@ -6,7 +6,7 @@ from app.core.state import UserData
 from app.core.prompts import SUPERVISOR_INSTRUCTIONS
 
 
-class SupervisorAgent(Agent):
+class SupervisorAgent(GuardedAgent):
     def __init__(self, chat_ctx=None) -> None:
         super().__init__(
             instructions=SUPERVISOR_INSTRUCTIONS,

@@ -60,7 +60,7 @@ BOOKING SEQUENCE — follow in order:
 
    NAME — SPELL-BACK REQUIRED, every time, no exceptions:
    a. Ask the caller to say their full name.
-   b. Spell it back letter by letter (e.g. "That's A-G-A-R-W-A-L, Amit
+   b. Spell it back letter by letter (e.g. "That's A-M-I-T A-G-A-R-W-A-L, Amit
       Agarwal — is that right?") and wait for explicit yes/no.
    c. If they say no or correct any letter, take their correction
       verbatim, spell it back again, and reconfirm. Repeat until confirmed.
