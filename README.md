@@ -9,7 +9,6 @@ Voice agent for lab diagnostics. Handles appointment booking, report status chec
 
 ### Architecture
 
-<!-- Replace this with the exported eraser.io diagram -->
 ![Architecture](docs/architecture.png)
 
 Caller → LiveKit (SIP/WebRTC) → Python worker (STT Groq Whisper / LLM Gemini / TTS Piper) → PostgreSQL.
@@ -18,14 +17,12 @@ Supervisor agent routes to three specialists: Appointment, Report Status, Ticket
 
 ### Database schema
 
-<!-- Placeholder — replace with your schema diagram -->
 ![Schema](docs/schema_export.png)
 
 Tables: centre, lab_test, patient, slot_inventory, appointment, appointment_test, report, report_test, ticket. Migrations are under `app/db/migrations/`.
 
 ### Demo
 
-<!-- Placeholder — add the demo video when ready -->
 [Demo video](docs/demo.mp4) *(coming soon)*
 
 ### What works today
@@ -39,7 +36,7 @@ Tables: centre, lab_test, patient, slot_inventory, appointment, appointment_test
 
 ### Known gaps (honest)
 - No load testing has been done yet.
-- Metrics are collected from LiveKit sessions but are only written to logs — nothing is wired to Prometheus, Grafana or any alerting system.
+- Metrics are collected from LiveKit sessions but are only written to logs, nothing is wired to Prometheus, Grafana or any alerting system.
 - App worker and Streamlit demo still run on the host; only Postgres + LiveKit are in docker-compose.
 - STT (Whisper via Groq) still struggles with some Indian names; spell-back confirmation is the current mitigation.
 

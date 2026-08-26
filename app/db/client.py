@@ -51,27 +51,20 @@ def search_centres(
     requires_home_visit: bool = False,
     requires_visit_center: bool = False,
 ) -> list[dict]:
-    """Return active centres matching any combination of the given filters.
-    All location filters are optional and AND-combined; omit a filter to
-    not constrain by it. Set requires_home_visit / requires_visit_center
-    to restrict to centres that support that collection mode.
+    """
+    Return active centres matching any combination of the given filters. All location filters are optional and AND-combined; omit a filter to not constrain by it. Set requires_home_visit / requires_visit_center to restrict to centres that support that collection mode.
 
-    City/state matching is token-aware: a spoken phrase like
-    "Kota Rajasthan" matches a row with city='Kota' (and optionally
-    state='Rajasthan') because each significant word is tried with ILIKE.
+    City/state matching is token-aware: a spoken phrase like "Kota Rajasthan" matches a row with city='Kota' (and optionally state='Rajasthan') because each significant word is tried with ILIKE.
     """
     clauses = ["is_active = TRUE"]
     params: list = []
 
     if pincode:
-        # Exact match on pincode; strip spaces so "324 001" still works
         clauses.append("pincode = %s")
         params.append(pincode.replace(" ", "").strip())
     if city:
         city_tokens = _location_tokens(city)
         if city_tokens:
-            # Match if the DB city equals/contains any token, OR any token
-            # contains the DB city (covers "Kota" vs "Kota Rajasthan")
             token_clauses = []
             for tok in city_tokens:
                 token_clauses.append("city ILIKE %s")

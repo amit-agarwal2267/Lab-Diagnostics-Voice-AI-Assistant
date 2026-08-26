@@ -21,6 +21,12 @@ from app.db.client import (
     update_patient_email,
     create_ticket,
 )
+from app.core.closing import (
+    pick, 
+    FOLLOWUP_LINES_FIRST, 
+    FOLLOWUP_LINES_SECOND, 
+    CLOSING_LINES
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +38,8 @@ _GENERIC_TOOL_ERROR = (
 )
 
 def _safe_tool(fn: F) -> F:
-    """Wrap a function tool so unexpected exceptions become a spoken error string
-    instead of crashing the agent turn. Known ValueError messages from the DB
-    layer are passed through when they are already user-facing.
+    """
+    Wrap a function tool so unexpected exceptions become a spoken error string instead of crashing the agent turn.
     """
 
     @wraps(fn)
@@ -46,17 +51,15 @@ def _safe_tool(fn: F) -> F:
             msg = str(exc).strip() or _GENERIC_TOOL_ERROR
             logger.warning("Tool %s ValueError: %s", fn.__name__, msg)
             return msg
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("Tool %s failed unexpectedly", fn.__name__)
             return _GENERIC_TOOL_ERROR
 
     return wrapper
 
 def _normalize_slot_date(date: str) -> str:
-    """Convert relative / spoken dates to YYYY-MM-DD (UTC calendar date).
-
-    Accepts: today, tomorrow, day after tomorrow, YYYY-MM-DD, DD/MM/YYYY,
-    DD-MM-YYYY, and phrases like "24 August 2026" / "August 24 2026".
+    """
+    Convert relative / spoken dates to YYYY-MM-DD (UTC calendar date).
     """
     from datetime import datetime, timedelta, UTC
     import re
@@ -111,10 +114,8 @@ async def find_centres(
     state: str | None = None,
     country: str | None = None,
 ) -> str:
-    """Look up lab centres, optionally filtered by pincode, city, state,
-    and/or country. All filters are optional -- pass only what the caller
-    gave you. Use this both for general "where is your centre" questions
-    and to resolve a centre before booking.
+    """
+    Look up lab centres, optionally filtered by pincode, city, state, or country. All filters are optional pass only what the caller gave you. Use this both for general "where is your centre" questions and to resolve a centre before booking.
     """
     centres = search_centres(pincode=pincode, city=city, state=state, country=country)
     if not centres:
@@ -128,7 +129,7 @@ async def find_centres(
         if c["supports_home_visit"]:
             modes.append("Home Visit")
         lines.append(
-            f"{c['name']} (code: {c['code']}) -- {c['address']}, {c['city']}, "
+            f"{c['name']} (code: {c['code']}) {c['address']}, {c['city']}, "
             f"{c['state']} {c['pincode']}. Supports: {', '.join(modes) or 'none'}."
         )
     return "\n".join(lines)
@@ -139,9 +140,8 @@ async def get_lab_test_prices(
     context: RunContext[UserData],
     query: str | None = None,
 ) -> str:
-    """Look up lab test prices. Pass a partial test name in `query` to
-    search, or omit it to list all available tests. Use this for general
-    pricing questions that aren't necessarily part of a booking yet.
+    """
+    Look up lab test prices. Pass a partial test name in `query` to search, or omit it to list all available tests. Use this for general pricing questions that aren't necessarily part of a booking.
     """
     tests = search_lab_tests(query=query)
     if not tests:
@@ -161,16 +161,10 @@ async def resolve_home_visit_centre(
     city: str,
     context: RunContext[UserData],
 ) -> str:
-    """Automatically find and record the servicing centre for a HOME VISIT
-    collection, using the caller's pincode (preferred, more precise) or
-    city. The caller never needs to know or choose a centre for a home
-    visit -- this just resolves it behind the scenes. Call this only when
-    mode_of_sample_collection is "Home Visit".
+    """
+    Automatically find and record the servicing centre for a HOME VISIT collection, using the caller's pincode (preferred, more precise) or city. The caller never needs to know or choose a centre for a home visit this just resolves it behind the scenes. Call this only when mode_of_sample_collection is "Home Visit".
 
-    Returns NO_SERVICE_IN_AREA if nothing supports home visits there --
-    tell the caller we don't currently service that area and are still
-    expanding, then offer to raise a general ticket or suggest Visit Center
-    instead.
+    Returns NO_SERVICE_IN_AREA if nothing supports home visits there tell the caller we don't currently service that area and are still expanding, then offer to raise a general ticket or suggest Visit Center instead.
     """
     centre = None
     if pincode:
@@ -196,11 +190,8 @@ async def select_visit_centre(
     centre_code_or_city: str,
     context: RunContext[UserData],
 ) -> str:
-    """Resolve and record which centre the caller wants to VISIT in
-    person. Try centre code first; if that doesn't match, search by city
-    (restricted to centres that support walk-in visits) and ask the caller
-    to pick if there's more than one result. Call this only when
-    mode_of_sample_collection is "Visit Center".
+    """
+    Resolve and record which centre the caller wants to VISIT in-person. Try centre code first; if that doesn't match, search by city (restricted to centres that support walk-in visits) and ask the caller to pick if there's more than one result. Call this only when mode_of_sample_collection is "Visit Center".
     """
     centre = get_centre_by_code(centre_code_or_city)
     if centre and not centre["supports_visit_center"]:
@@ -228,12 +219,10 @@ async def verify_patient_identity(
     phone: str,
     context: RunContext[UserData],
 ) -> str:
-    """Verify a caller's identity against existing patient records.
+    """
+    Verify a caller's identity against existing patient records.
 
-    Call this before revealing report status or making changes to an
-    existing booking (e.g. correcting an email). Do NOT call this for
-    a brand-new customer with no prior booking -- that flow doesn't
-    need identity verification.
+    Call this before revealing report status or making changes to an existing booking (e.g. correcting an email). Do NOT call this for a brand-new customer with no prior booking that flow doesn't need identity verification.
     """
     patient = get_patient_by_details(name=name, age=age, phone=phone)
 
@@ -256,9 +245,8 @@ async def check_prescription_requirement(
     test_names: list[str],
     context: RunContext[UserData],
 ) -> str:
-    """Check whether any of the requested lab tests require a prescription,
-    and return each test's pre-test instructions (e.g. fasting requirements).
-    Call this after a centre has been selected.
+    """
+    Check whether any of the requested lab tests require a prescription, and return each test's pre-test instructions (e.g. fasting requirements). Call this after a centre has been selected.
     """
     if not test_names:
         return "No test names provided. Ask the caller which tests they need."
@@ -291,15 +279,11 @@ async def check_prescription_requirement(
 @function_tool
 @_safe_tool
 async def get_slots(date: str, context: RunContext[UserData]) -> str:
-    """List available appointment slots for a given date at the
-    already-resolved centre. The centre must already be set via
-    resolve_home_visit_centre or select_visit_centre.
+    """
+    List available appointment slots for a given date at the already-resolved centre. The centre must already be set via resolve_home_visit_centre or select_visit_centre.
 
     Pass `date` as YYYY-MM-DD, or a relative word the tool understands:
-    "today", "tomorrow", "day after tomorrow", or a spoken date like
-    "24 August 2026". Call this ONCE per requested date — do not retry
-    the same date if the result is empty; instead tell the caller and
-    offer another day.
+    "today", "tomorrow", "day after tomorrow", or a spoken date like "24 August 2026". Call this ONCE per requested date - do not retry the same date if the result is empty; instead tell the caller and offer another day.
     """
     if not context.userdata.is_centre_selected():
         return "No centre resolved yet. Determine mode of sample collection and resolve the centre first."
@@ -337,13 +321,10 @@ async def finalize_appointment(
     mode_of_payment: str,
     context: RunContext[UserData],
 ) -> str:
-    """Create the appointment once centre, tests, slot, and patient info
-    are all collected.
+    """
+    Create the appointment once centre, tests, slot, and patient info are all collected.
 
-    If a prescription is required, this reserves the slot WITHOUT confirming
-    it and sends a prescription-upload link -- the booking stays pending
-    until an executive confirms it manually. If no prescription is required,
-    this sends a payment link instead.
+    If a prescription is required, this reserves the slot WITHOUT confirming it and sends a prescription-upload link, the booking stays pending until an executive confirms it manually. If no prescription is required, this sends a payment link instead.
     """
     if not context.userdata.is_centre_selected():
         return "No centre resolved. Determine mode of sample collection and resolve a centre before finalizing."
@@ -389,8 +370,8 @@ async def finalize_appointment(
 @function_tool
 @_safe_tool
 async def check_report_status(context: RunContext[UserData]) -> str:
-    """Check whether the caller's lab report is ready. Requires identity
-    verification first via verify_patient_identity.
+    """
+    Check whether the caller's lab report is ready. Requires identity verification first via verify_patient_identity.
     """
     if not context.userdata.is_identity_verified():
         return "Identity not verified yet."
@@ -413,8 +394,8 @@ async def update_email_on_file(
     new_email: str,
     context: RunContext[UserData],
 ) -> str:
-    """Update the email on an existing booking. Requires identity
-    verification first via verify_patient_identity.
+    """
+    Update the email on an existing booking. Requires identity verification first via verify_patient_identity.
     """
     if not context.userdata.is_identity_verified():
         return "Identity not verified yet."
@@ -430,7 +411,8 @@ async def raise_ticket(
     description: str,
     context: RunContext[UserData],
 ) -> str:
-    """Raise a support ticket for human follow-up. Use this for:
+    """
+    Raise a support ticket for human follow-up. Use this for:
     - new customers with a general inquiry (no verification needed)
     - failed identity verification after repeated attempts
     """
@@ -442,3 +424,35 @@ async def raise_ticket(
         description=description,
     )
     return "Ticket raised. An executive will call you back shortly."
+
+
+@function_tool
+@_safe_tool
+async def offer_more_help(context: RunContext[UserData]) -> str:
+    """
+    Call this once the caller's current request is fully resolved. Handles asking if they need anything else, up to twice, then ends the call. Do not write your own follow-up or goodbye text.
+    """
+    ud = context.userdata
+    ud.followup_attempts += 1
+
+    if ud.followup_attempts == 1:
+        await context.session.say(pick(FOLLOWUP_LINES_FIRST))
+        return "Asked once. Wait for the caller's reply."
+    elif ud.followup_attempts == 2:
+        await context.session.say(pick(FOLLOWUP_LINES_SECOND))
+        return "Asked a second time. Wait for the caller's reply."
+    else:
+        await context.session.say(pick(CLOSING_LINES), allow_interruptions=False)
+        context.session.shutdown()
+        return "Call ended after two unanswered follow-ups."
+
+@function_tool
+@_safe_tool
+async def close_call(context: RunContext[UserData]) -> str:
+    """
+    Call this directly when the caller explicitly says no / goodbye / nothing else needed. Skips further follow-ups.
+    """
+    context.userdata.reset_followups()
+    await context.session.say(pick(CLOSING_LINES), allow_interruptions=False)
+    context.session.shutdown()
+    return "Call ended."

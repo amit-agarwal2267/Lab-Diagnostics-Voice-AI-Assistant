@@ -4,7 +4,9 @@ import pytest
 from app.core.state import UserData
 
 def _ctx(**userdata_kwargs) -> SimpleNamespace:
-    """Minimal RunContext stand-in: tools only use context.userdata."""
+    """
+    Minimal RunContext stand-in: tools only use context.userdata.
+    """
     return SimpleNamespace(userdata=UserData(**userdata_kwargs))
 
 @pytest.mark.asyncio

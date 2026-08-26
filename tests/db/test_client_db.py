@@ -17,9 +17,7 @@ def db_connection():
 @pytest.fixture
 def seeded_centre_uuid():
     """
-    Resolves the centre_uuid that init_db.sql seeded slot_inventory rows
-    against for CURRENT_DATE + 1, rather than hardcoding one. Keeps tests
-    decoupled from a specific centre's uuid/code.
+    Resolves the centre_uuid that init_db.sql seeded slot_inventory rows against for CURRENT_DATE + 1, rather than hardcoding one. Keeps tests decoupled from a specific centre's uuid/code.
     """
     tomorrow = (datetime.now(UTC) + timedelta(days=1)).date()
     with client.get_connection() as conn, conn.cursor() as cur:
@@ -34,7 +32,9 @@ def seeded_centre_uuid():
 
 @pytest.fixture
 def any_active_centre_uuid():
-    """Any active centre, for tests that just need a valid FK target."""
+    """
+    Any active centre, for tests that just need a valid FK target.
+    """
     with client.get_connection() as conn, conn.cursor() as cur:
         cur.execute("SELECT uuid FROM centre WHERE is_active = TRUE LIMIT 1")
         row = cur.fetchone()
@@ -92,7 +92,9 @@ def test_search_centres_unmatched_location_returns_empty():
 
 
 def test_search_centres_matches_city_within_spoken_phrase():
-    """STT often yields 'Kota Rajasthan'; DB city is just 'Kota'."""
+    """
+    STT often yields 'Kota Rajasthan'; DB city is just 'Kota'.
+    """
     results = client.search_centres(city="Kota Rajasthan", requires_home_visit=True)
 
     assert len(results) >= 1

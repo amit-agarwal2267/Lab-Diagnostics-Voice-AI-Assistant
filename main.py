@@ -1,6 +1,7 @@
 import logging
 from dataclasses import asdict, is_dataclass
 from livekit import agents
+import asyncio
 from livekit.agents import (
     AgentServer,
     AgentSession,
@@ -10,6 +11,13 @@ from livekit.agents import (
     inference,
     TurnHandlingOptions,
     metrics,
+    UserStateChangedEvent,
+)
+from app.core.closing import (
+    pick, 
+    FOLLOWUP_LINES_FIRST, 
+    FOLLOWUP_LINES_SECOND, 
+    CLOSING_LINES,
 )
 from livekit.plugins import noise_cancellation, groq, google
 from app.core.state import UserData
@@ -35,7 +43,8 @@ server = AgentServer(
 )
 
 def _prewarm(proc: JobProcess) -> None:
-    """Runs once per idle process before any job is assigned.
+    """
+    Runs once per idle process before any job is assigned.
 
     Load models / warm caches here so the first call does not pay cold-start cost.
     """
@@ -47,7 +56,9 @@ def _prewarm(proc: JobProcess) -> None:
 server.setup_fnc = _prewarm
 
 def _metrics_to_dict(m) -> dict:
-    """Best-effort conversion of a metrics object to a JSON-serializable dict."""
+    """
+    Best-effort conversion of a metrics object to a JSON-serializable dict.
+    """
     if is_dataclass(m):
         return asdict(m)
     if hasattr(m, "__dict__"):
@@ -56,11 +67,8 @@ def _metrics_to_dict(m) -> dict:
 
 
 def _attach_metrics(session: AgentSession, ctx: JobContext) -> None:
-    """Collect LiveKit session metrics and log structured usage on shutdown.
-
-    Supports both current APIs:
-      - session.on("metrics_collected") + UsageCollector (widely available)
-      - session.on("session_usage_updated") (Agents >= 1.5)
+    """
+    Collect LiveKit session metrics and log structured usage on shutdown.
     """
     usage_collector = metrics.UsageCollector()
 
@@ -139,6 +147,8 @@ async def entrypoint(ctx: JobContext):
             speed=0.95,
         ),
         max_tool_steps=8,
+        user_away_timeout=15.0,
+        
         turn_handling=TurnHandlingOptions(
             turn_detection=inference.TurnDetector(),
             endpointing={
@@ -157,16 +167,45 @@ async def entrypoint(ctx: JobContext):
     )
 
     _attach_metrics(session, ctx)
+    _attach_inactivity_handler(session, session.userdata)
 
     await session.start(
         agent=SupervisorAgent(),
         room=ctx.room,
         room_options=room_io.RoomOptions(
+            delete_room_on_close=True,
             audio_input=room_io.AudioInputOptions(
                 noise_cancellation=noise_cancellation.BVC(),
             ),
         ),
     )
+
+def _attach_inactivity_handler(session: AgentSession, userdata: UserData) -> None:
+    inactivity_task: asyncio.Task | None = None
+
+    async def check_if_user_present() -> None:
+        userdata.followup_attempts += 1
+        await session.say(pick(FOLLOWUP_LINES_FIRST))
+        await asyncio.sleep(8)
+
+        userdata.followup_attempts += 1
+        await session.say(pick(FOLLOWUP_LINES_SECOND))
+        await asyncio.sleep(8)
+
+        await session.say(pick(CLOSING_LINES), allow_interruptions=False)
+        session.shutdown()
+
+    def _on_user_state_changed(ev: UserStateChangedEvent) -> None:
+        nonlocal inactivity_task
+        if ev.new_state == "away":
+            inactivity_task = asyncio.create_task(check_if_user_present())
+            return
+        if inactivity_task is not None:
+            inactivity_task.cancel()
+            inactivity_task = None
+            userdata.reset_followups()
+
+    session.on("user_state_changed", _on_user_state_changed)
 
 if __name__ == "__main__":
     start_health_server(host=settings.health_host, port=settings.health_port)

@@ -37,24 +37,24 @@ class SupervisorAgent(GuardedAgent):
 
     @function_tool
     async def handoff_to_appointment(self, context: RunContext[UserData]):
-        """Hand off to the appointment booking specialist. Call this when
-        the caller wants to book a lab test or asks about tests/prices/slots.
+        """
+        Hand off to the appointment booking specialist. Call this when the caller wants to book a lab test or asks about tests/prices/slots.
         """
         from app.core.agents.appointment import AppointmentAgent
         return AppointmentAgent(chat_ctx=self.chat_ctx.copy(exclude_instructions=True))
 
     @function_tool
     async def handoff_to_report_status(self, context: RunContext[UserData]):
-        """Hand off to the report status specialist. Call this when the
-        caller asks if their report is ready or wants it resent.
+        """
+        Hand off to the report status specialist. Call this when the caller asks if their report is ready or wants it resent.
         """
         from app.core.agents.report_status import ReportStatusAgent
         return ReportStatusAgent(chat_ctx=self.chat_ctx.copy(exclude_instructions=True))
 
     @function_tool
     async def handoff_to_ticket(self, context: RunContext[UserData]):
-        """Hand off to the support ticket specialist. Call this for wrong
-        email/booking corrections, complaints, or any general inquiry.
+        """
+        Hand off to the support ticket specialist. Call this for wrong email/booking corrections, complaints, or any general inquiry.
         """
         from app.core.agents.ticket import TicketAgent
         return TicketAgent(chat_ctx=self.chat_ctx.copy(exclude_instructions=True))

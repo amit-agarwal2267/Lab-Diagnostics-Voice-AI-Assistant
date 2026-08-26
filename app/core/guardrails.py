@@ -23,7 +23,6 @@ _SENSITIVE_PATTERNS: list[re.Pattern[str]] = [
         r"pregnancy|seizure|epilepsy|asthma|copd|lung\s+disease)\b",
         re.IGNORECASE | re.DOTALL,
     ),
-    # Recent surgery / operation / procedure timing
     re.compile(
         r"\b(operation|surgery|operated|surgical|procedure|operated\s+on|"
         r"post[\s-]?op|after\s+(my\s+)?(surgery|operation|procedure))\b"
@@ -46,7 +45,8 @@ _SENSITIVE_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 def check_medical_guardrail(text: str | None) -> str | None:
-    """Return a deflection message if *text* asks for clinical advice, else None.
+    """
+    Return a deflection message if *text* asks for clinical advice, else None.
 
     Parameters
     ----------

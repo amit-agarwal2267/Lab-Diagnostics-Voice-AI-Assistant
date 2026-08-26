@@ -9,7 +9,9 @@ from typing import Callable
 logger = logging.getLogger(__name__)
 
 def _check_db() -> tuple[bool, str]:
-    """Return (ok, detail). Isolates DB import so health module stays light."""
+    """
+    Return (ok, detail). Isolates DB import so health module stays light.
+    """
     try:
         from app.db.client import get_connection
 
@@ -23,7 +25,7 @@ def _check_db() -> tuple[bool, str]:
 class _HealthHandler(BaseHTTPRequestHandler):
     ready_check: Callable[[], tuple[bool, str]] = staticmethod(_check_db)
 
-    def log_message(self, format: str, *args) -> None:  # noqa: A003
+    def log_message(self, format: str, *args) -> None:  
         logger.debug("health %s - %s", self.address_string(), format % args)
 
     def _send(self, status: int, body: dict) -> None:
@@ -34,7 +36,7 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:  
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
 
         if path in ("/healthz", "/health", "/"):
@@ -59,10 +61,10 @@ def start_health_server(
     port: int = 8080,
     ready_check: Callable[[], tuple[bool, str]] | None = None,
 ) -> ThreadingHTTPServer | None:
-    """Start the health HTTP server on a daemon thread.
+    """
+    Start the health HTTP server on a daemon thread.
 
-    Returns the server instance, or None if the port is already bound
-    (expected in LiveKit job worker child processes).
+    Returns the server instance, or None if the port is already bound (expected in LiveKit job worker child processes).
     """
     if ready_check is not None:
         _HealthHandler.ready_check = staticmethod(ready_check)

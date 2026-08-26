@@ -13,7 +13,6 @@ def _free_port() -> int:
 @pytest.fixture
 def health_server():
     port = _free_port()
-    # Inject deterministic readiness (avoid real DB)
     server = start_health_server(
         host="127.0.0.1",
         port=port,

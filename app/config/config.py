@@ -1,4 +1,3 @@
-# app/core/config.py
 from functools import lru_cache
 from typing import Literal, Optional
 from pydantic import Field, SecretStr

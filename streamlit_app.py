@@ -41,10 +41,6 @@ def create_room_token(identity: str, room_name: str) -> str:
 
 
 async def dispatch_agent(room_name: str) -> None:
-    """Explicitly tell LiveKit to send our agent worker into this room.
-    Required unless main.py's worker is registered for automatic dispatch.
-    agent_name here MUST match whatever name main.py registers itself under.
-    """
     lk_api = api.LiveKitAPI(
         settings.livekit_url,
         settings.livekit_api_key.get_secret_value(),
@@ -94,6 +90,7 @@ else:
           room.on(LivekitClient.RoomEvent.ParticipantAttributesChanged, (changed, participant) => {{
             if (participant.isLocal) return;
             const state = participant.attributes["lk.agent.state"];
+            console.log("attrs changed, state:", state);
             if (state === "listening" || state === "speaking") {{
               markReady();
             }}
@@ -108,7 +105,32 @@ else:
             }}
           }});
 
-          // Keep mic enabled for the whole call; never toggle it off.
+          room.on(LivekitClient.RoomEvent.ParticipantDisconnected, (participant) => {{
+            console.log("participant disconnected:", participant.identity);
+          }});
+
+          room.on(LivekitClient.RoomEvent.Disconnected, (reason) => {{
+            console.log("room disconnected, reason:", reason);
+            statusEl.innerText = "Call ended. Returning to start screen...";
+            const audioEl = document.getElementById("agent-audio");
+            if (audioEl) {{
+              audioEl.pause();
+              audioEl.srcObject = null;
+            }}
+
+            try {{
+              const buttons = window.parent.document.querySelectorAll('button');
+              for (const btn of buttons) {{
+                if (btn.innerText.trim() === "End Call") {{
+                  btn.click();
+                  break;
+                }}
+              }}
+            }} catch (e) {{
+              console.error("could not auto-click End Call:", e);
+            }}
+          }});
+
           room.on(LivekitClient.RoomEvent.LocalTrackUnpublished, async (pub) => {{
             if (pub.kind === "audio" || pub.source === "microphone") {{
               try {{
@@ -127,9 +149,9 @@ else:
 
           try {{
             await room.connect("{settings.livekit_url}", "{token}");
-            // Enable mic immediately on connect and leave it on for the full call.
             await room.localParticipant.setMicrophoneEnabled(true);
             statusEl.innerText = "Connected – mic on, waiting for agent...";
+            console.log("Disconnected listener count:", room.listenerCount(LivekitClient.RoomEvent.Disconnected));
 
             setTimeout(() => {{
               if (!ready) {{
@@ -138,6 +160,7 @@ else:
             }}, 8000);
           }} catch (err) {{
             statusEl.innerText = "Connection failed: " + err;
+            console.error("connect failed:", err);
           }}
         }}
 

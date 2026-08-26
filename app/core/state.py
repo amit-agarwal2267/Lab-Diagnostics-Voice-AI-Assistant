@@ -23,6 +23,8 @@ class UserData:
 
     verification_attempts: int = 0
 
+    followup_attempts: int = 0
+
     def reset_verification(self) -> None:
         self.verification_attempts = 0
 
@@ -31,3 +33,6 @@ class UserData:
 
     def is_centre_selected(self) -> bool:
         return self.centre_uuid is not None
+
+    def reset_followups(self) -> None:
+        self.followup_attempts = 0

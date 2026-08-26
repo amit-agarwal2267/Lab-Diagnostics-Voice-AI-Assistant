@@ -9,6 +9,8 @@ from app.core.tools import (
     get_slots,
     select_slot,
     finalize_appointment,
+    offer_more_help, 
+    close_call,
 )
 
 
@@ -21,6 +23,8 @@ class AppointmentAgent(GuardedAgent):
                 get_slots,
                 select_slot,
                 finalize_appointment,
+                offer_more_help, 
+                close_call,
             ],
             chat_ctx=chat_ctx,
         )
@@ -36,10 +40,8 @@ class AppointmentAgent(GuardedAgent):
 
     @function_tool
     async def handoff_to_supervisor(self, context: RunContext[UserData]):
-        """Hand off back to the front desk if the caller's request is no
-        longer about booking (e.g. they ask about report status or want
-        to raise a complaint mid-booking). Whatever has been collected so
-        far (tests, slot, etc.) stays in UserData and is not lost.
+        """
+        Hand off back to the front desk if the caller's request is no longer about booking (e.g. they ask about report status or want to raise a complaint mid-booking). Whatever has been collected so far (tests, slot, etc.) stays in UserData and is not lost.
         """
         from app.core.agents.supervisor import SupervisorAgent
         return SupervisorAgent(chat_ctx=self.chat_ctx.copy(exclude_instructions=True))

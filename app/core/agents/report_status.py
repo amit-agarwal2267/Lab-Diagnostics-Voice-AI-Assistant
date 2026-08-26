@@ -8,6 +8,8 @@ from app.core.tools import (
     verify_patient_identity,
     check_report_status,
     raise_ticket,
+    offer_more_help, 
+    close_call,
 )
 
 
@@ -19,6 +21,8 @@ class ReportStatusAgent(GuardedAgent):
                 verify_patient_identity,
                 check_report_status,
                 raise_ticket,
+                offer_more_help, 
+                close_call,
             ],
             chat_ctx=chat_ctx,
         )
@@ -34,8 +38,8 @@ class ReportStatusAgent(GuardedAgent):
 
     @function_tool
     async def handoff_to_supervisor(self, context: RunContext[UserData]):
-        """Hand off back to the front desk if the caller's request is not
-        about report status (e.g. they want to book a new test).
+        """
+        Hand off back to the front desk if the caller's request is not about report status (e.g. they want to book a new test).
         """
         from app.core.agents.supervisor import SupervisorAgent
         return SupervisorAgent(chat_ctx=self.chat_ctx.copy(exclude_instructions=True))

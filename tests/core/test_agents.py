@@ -11,7 +11,9 @@ from app.core.prompts import (
 
 
 def _tool_names(agent) -> set[str]:
-    """Extract function names from LiveKit FunctionTool wrappers or plain callables."""
+    """
+    Extract function names from LiveKit FunctionTool wrappers or plain callables.
+    """
     names: set[str] = set()
     for t in agent.tools or []:
         if hasattr(t, "__name__") and not str(type(t)).endswith("FunctionTool'>"):
