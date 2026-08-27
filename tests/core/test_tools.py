@@ -101,7 +101,7 @@ async def test_resolve_home_visit_kota_rajasthan_phrase():
     with patch("app.core.tools.search_centres", return_value=[centre]) as mock_search:
         ctx = _ctx()
         result = await tools.resolve_home_visit_centre(
-            pincode=None, city="Kota Rajasthan", context=ctx, state=None
+            pincode=None, city="Kota Rajasthan", context=ctx
         )
     assert "NO_SERVICE" not in result
     assert "Main Diagnostics Kota" in result

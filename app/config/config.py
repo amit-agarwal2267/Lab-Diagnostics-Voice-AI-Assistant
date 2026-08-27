@@ -1,7 +1,7 @@
-from functools import lru_cache
-from typing import Literal, Optional
 from pydantic import Field, SecretStr
+from typing import Literal, Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import lru_cache
 
 
 class Settings(BaseSettings):
@@ -12,14 +12,17 @@ class Settings(BaseSettings):
     )
 
     livekit_url: str = Field(..., alias="LIVEKIT_URL")
+    livekit_api_url: Optional[str] = Field(None, alias="LIVEKIT_API_URL")
     livekit_api_key: SecretStr = Field(..., alias="LIVEKIT_API_KEY")
     livekit_api_secret: SecretStr = Field(..., alias="LIVEKIT_API_SECRET")
     livekit_agent_name: str = Field("supervisor-agent", alias="LIVEKIT_AGENT_NAME")
 
     google_api_key: Optional[SecretStr] = Field(None, alias="GOOGLE_API_KEY")
+    openrouter_api_key: Optional[SecretStr] = Field(None, alias="OPENROUTER_API_KEY")
     groq_api_key: Optional[SecretStr] = Field(None, alias="GROQ_API_KEY")
 
     llm_model: str = Field("gemini-3.5-flash-lite", alias="LLM_MODEL")        # Only google models
+    fallback_llm_model: str = Field("gemini-3.5-flash-lite", alias="FALLBACK_LLM_MODEL")        # Only openrouter models
     stt_model: str = Field("whisper-large-v3-turbo", alias="STT_MODEL")       # Only groq models
     tts_model_path: str = Field(
         "models/piper/en_US-ryan-high.onnx", alias="TTS_MODEL_PATH"           # Stored voice model
@@ -40,6 +43,15 @@ class Settings(BaseSettings):
 
     health_host: str = Field("0.0.0.0", alias="HEALTH_HOST")
     health_port: int = Field(8080, alias="HEALTH_PORT")
+
+    api_host: str = Field("0.0.0.0", alias="API_HOST")
+    api_port: int = Field(8000, alias="API_PORT")
+
+    cors_origins_raw: str = Field(
+        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
+        alias="CORS_ORIGINS",
+    )
+    frontend_url: str = Field("", alias="FRONTEND_URL")
 
     num_idle_processes: int = Field(2, alias="NUM_IDLE_PROCESSES")
     load_threshold: float = Field(0.75, alias="LOAD_THRESHOLD")

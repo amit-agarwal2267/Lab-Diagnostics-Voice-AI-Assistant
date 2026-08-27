@@ -1,8 +1,7 @@
 from app.core.agents.guarded_agent import GuardedAgent
 from livekit.agents.llm import function_tool
-from livekit.agents.voice import RunContext
-
 from app.core.state import UserData
+from livekit.agents.voice import RunContext
 from app.core.prompts import APPOINTMENT_INSTRUCTIONS
 from app.core.tools import (
     check_prescription_requirement,

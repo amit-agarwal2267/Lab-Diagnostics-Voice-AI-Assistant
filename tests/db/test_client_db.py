@@ -41,6 +41,115 @@ def any_active_centre_uuid():
     assert row is not None, "No active centre seeded"
     return str(row["uuid"])
 
+
+# Stable IDs used by several DB tests (created on demand if missing from seed).
+FIXTURE_PATIENT_UUID = "e1111111-1111-1111-1111-111111111111"
+FIXTURE_REPORT_UUID = "b1111111-1111-1111-1111-111111111111"
+FIXTURE_PATIENT_EMAIL = "amit.test@example.com"
+FIXTURE_PATIENT_PHONE = "9990001111"
+
+
+@pytest.fixture
+def fixture_patient(any_active_centre_uuid):
+    """
+    Ensure the canonical test patient + ready report exist.
+    Idempotent: reuses any existing row with the fixture email, otherwise inserts.
+    """
+    with client.get_connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT uuid FROM patient WHERE email_address = %s",
+            (FIXTURE_PATIENT_EMAIL,),
+        )
+        existing = cur.fetchone()
+        if existing:
+            patient_uuid = str(existing["uuid"])
+            cur.execute(
+                """
+                UPDATE patient
+                SET name = %s, age = %s, phone_number = %s
+                WHERE uuid = %s
+                """,
+                ("Amit Agarwal", 23, FIXTURE_PATIENT_PHONE, patient_uuid),
+            )
+        else:
+            cur.execute(
+                "SELECT uuid FROM patient WHERE uuid = %s",
+                (FIXTURE_PATIENT_UUID,),
+            )
+            if cur.fetchone():
+                patient_uuid = FIXTURE_PATIENT_UUID
+                cur.execute(
+                    """
+                    UPDATE patient
+                    SET name = %s, age = %s, phone_number = %s, email_address = %s
+                    WHERE uuid = %s
+                    """,
+                    (
+                        "Amit Agarwal",
+                        23,
+                        FIXTURE_PATIENT_PHONE,
+                        FIXTURE_PATIENT_EMAIL,
+                        patient_uuid,
+                    ),
+                )
+            else:
+                patient_uuid = FIXTURE_PATIENT_UUID
+                cur.execute(
+                    """
+                    INSERT INTO patient (uuid, name, age, phone_number, email_address, address)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        patient_uuid,
+                        "Amit Agarwal",
+                        23,
+                        FIXTURE_PATIENT_PHONE,
+                        FIXTURE_PATIENT_EMAIL,
+                        "Kota, Rajasthan",
+                    ),
+                )
+
+        cur.execute(
+            "SELECT uuid FROM report WHERE uuid = %s",
+            (FIXTURE_REPORT_UUID,),
+        )
+        if cur.fetchone():
+            cur.execute(
+                """
+                UPDATE report
+                SET patient_uuid = %s,
+                    status = 'ready',
+                    storage_path = COALESCE(storage_path, %s),
+                    deleted_at = NULL
+                WHERE uuid = %s
+                """,
+                (patient_uuid, "reports/b1111111.pdf", FIXTURE_REPORT_UUID),
+            )
+        else:
+            cur.execute(
+                """
+                INSERT INTO report (
+                    uuid, patient_uuid, appointment_uuid, centre_uuid,
+                    sample_given_date, generation_date, status, storage_path, deleted_at
+                )
+                VALUES (%s, %s, NULL, %s, CURRENT_DATE - 5, CURRENT_DATE - 2, 'ready', %s, NULL)
+                """,
+                (
+                    FIXTURE_REPORT_UUID,
+                    patient_uuid,
+                    any_active_centre_uuid,
+                    "reports/b1111111.pdf",
+                ),
+            )
+        conn.commit()
+
+    return {
+        "uuid": patient_uuid,
+        "email": FIXTURE_PATIENT_EMAIL,
+        "phone": FIXTURE_PATIENT_PHONE,
+        "report_uuid": FIXTURE_REPORT_UUID,
+    }
+
 def test_get_connection(db_connection):
     assert db_connection is not None
     assert not db_connection.closed
@@ -49,8 +158,8 @@ def test_get_test_info_existing():
     result = client.get_test_info("CBC")
 
     assert result is not None
-    assert result["test_name"] == "CBC"
-    assert result["price"] == 350
+    assert "CBC" in result["test_name"]
+    assert float(result["price"]) == 350.0
     assert result["requires_prescription"] is False
 
 def test_get_test_info_unknown():
@@ -61,7 +170,7 @@ def test_search_lab_tests_query():
     results = client.search_lab_tests(query="CBC")
 
     assert isinstance(results, list)
-    assert any(t["test_name"] == "CBC" for t in results)
+    assert any("CBC" in t["test_name"] for t in results)
 
 def test_search_lab_tests_no_query_returns_all():
     results = client.search_lab_tests()
@@ -177,7 +286,7 @@ def test_reserve_slot_already_booked_raises(seeded_centre_uuid):
             )
             conn.commit()
 
-def test_get_patient_by_details_matching_phone_last_four_digits():
+def test_get_patient_by_details_matching_phone_last_four_digits(fixture_patient):
     """
     The current implementation intentionally compares only the
     last four digits of the phone number.
@@ -190,29 +299,29 @@ def test_get_patient_by_details_matching_phone_last_four_digits():
 
     assert patient is not None
     assert patient["name"] == "Amit Agarwal"
-    assert patient["phone_number"] == "9990001111"
+    assert patient["phone_number"] == fixture_patient["phone"]
 
-def test_get_patient_by_details_wrong_name():
+def test_get_patient_by_details_wrong_name(fixture_patient):
     patient = client.get_patient_by_details(
         name="Unknown Person",
         age=23,
-        phone="9990001111",
+        phone=fixture_patient["phone"],
     )
 
     assert patient is None
 
-def test_get_patient_by_details_wrong_age():
+def test_get_patient_by_details_wrong_age(fixture_patient):
     patient = client.get_patient_by_details(
         name="Amit Agarwal",
         age=99,
-        phone="9990001111",
+        phone=fixture_patient["phone"],
     )
 
     assert patient is None
 
-def test_update_patient_email():
-    patient_uuid = "e1111111-1111-1111-1111-111111111111"
-    original_email = "amit.test@example.com"
+def test_update_patient_email(fixture_patient):
+    patient_uuid = fixture_patient["uuid"]
+    original_email = fixture_patient["email"]
     new_email = f"test-{uuid.uuid4()}@example.com"
 
     try:
@@ -225,16 +334,17 @@ def test_update_patient_email():
             )
             row = cur.fetchone()
 
+        assert row is not None
         assert row["email_address"] == new_email
 
     finally:
         client.update_patient_email(patient_uuid, original_email)
 
-def test_create_appointment_existing_patient(any_active_centre_uuid):
+def test_create_appointment_existing_patient(any_active_centre_uuid, fixture_patient):
     appointment_id = client.create_appointment(
         patient_name="Amit Agarwal",
         patient_age=23,
-        patient_email="amit.test@example.com",
+        patient_email=fixture_patient["email"],
         centre_uuid=any_active_centre_uuid,
         test_uuids=[],
         slot="2030-01-01 10:00:00",
@@ -263,9 +373,7 @@ def test_create_appointment_existing_patient(any_active_centre_uuid):
         conn.commit()
 
     assert appointment["uuid"] == appointment_id
-    assert str(appointment["patient_uuid"]) == (
-        "e1111111-1111-1111-1111-111111111111"
-    )
+    assert str(appointment["patient_uuid"]) == fixture_patient["uuid"]
     assert str(appointment["centre_uuid"]) == any_active_centre_uuid
     assert appointment["status"] == "awaiting_payment"
     assert appointment["requires_prescription"] is False
@@ -329,7 +437,7 @@ def test_create_appointment_links_tests_via_junction_table(any_active_centre_uui
     try:
         linked_tests = client.get_appointment_tests(appointment_id)
         assert len(linked_tests) == 1
-        assert linked_tests[0]["test_name"] == "CBC"
+        assert "CBC" in linked_tests[0]["test_name"]
     finally:
         with client.get_connection() as conn, conn.cursor() as cur:
             cur.execute(
@@ -338,12 +446,10 @@ def test_create_appointment_links_tests_via_junction_table(any_active_centre_uui
             )
             conn.commit()
 
-def test_get_report_status():
-    patient_uuid = "e1111111-1111-1111-1111-111111111111"
+def test_get_report_status(fixture_patient):
+    result = client.get_report_status(fixture_patient["uuid"])
 
-    result = client.get_report_status(patient_uuid)
-
-    assert result["uuid"] == "b1111111-1111-1111-1111-111111111111"
+    assert str(result["uuid"]) == fixture_patient["report_uuid"]
     assert result["status"] == "ready"
 
 def test_get_report_status_no_report():
@@ -353,8 +459,8 @@ def test_get_report_status_no_report():
     with pytest.raises(ValueError, match="No report found"):
         client.get_report_status(patient_uuid)
 
-def test_resend_report():
-    report_uuid = "b1111111-1111-1111-1111-111111111111"
+def test_resend_report(fixture_patient):
+    report_uuid = fixture_patient["report_uuid"]
 
     client.resend_report(report_uuid, "email")
 
@@ -370,6 +476,7 @@ def test_resend_report():
 
         report = cur.fetchone()
 
+    assert report is not None
     assert report["last_resent_at"] is not None
     assert report["last_resent_channel"] == "email"
 
@@ -383,15 +490,17 @@ def test_get_expired_reports():
         assert "storage_path" in report
         assert report["storage_path"] is not None
 
-def test_clear_report_storage_path():
-    report_uuid = "b1111111-1111-1111-1111-111111111111"
+def test_clear_report_storage_path(fixture_patient):
+    report_uuid = fixture_patient["report_uuid"]
 
     with client.get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT storage_path FROM report WHERE uuid = %s",
             (report_uuid,),
         )
-        original = cur.fetchone()["storage_path"]
+        row = cur.fetchone()
+        assert row is not None, "fixture report missing"
+        original = row["storage_path"]
 
     try:
         client.clear_report_storage_path(report_uuid)
@@ -424,8 +533,8 @@ def test_clear_report_storage_path():
             )
             conn.commit()
 
-def test_create_ticket():
-    patient_uuid = "e1111111-1111-1111-1111-111111111111"
+def test_create_ticket(fixture_patient):
+    patient_uuid = fixture_patient["uuid"]
     ticket_id = client.create_ticket(
         patient_uuid=patient_uuid,
         category="email_correction",

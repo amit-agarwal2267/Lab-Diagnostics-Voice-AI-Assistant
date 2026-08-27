@@ -2,6 +2,7 @@ import logging
 from dataclasses import asdict, is_dataclass
 from livekit import agents
 import asyncio
+import json
 from livekit.agents import (
     AgentServer,
     AgentSession,
@@ -12,6 +13,7 @@ from livekit.agents import (
     TurnHandlingOptions,
     metrics,
     UserStateChangedEvent,
+    llm,
 )
 from app.core.closing import (
     pick, 
@@ -19,7 +21,7 @@ from app.core.closing import (
     FOLLOWUP_LINES_SECOND, 
     CLOSING_LINES,
 )
-from livekit.plugins import noise_cancellation, groq, google
+from livekit.plugins import noise_cancellation, groq, google, openai
 from app.core.state import UserData
 from app.core.agents.supervisor import SupervisorAgent
 from local_livekit_plugins import PiperTTS
@@ -42,6 +44,13 @@ server = AgentServer(
     drain_timeout=settings.drain_timeout,
 )
 
+_METRIC_LABELS = {
+    "stt_metrics": "stt",
+    "llm_metrics": "llm",
+    "tts_metrics": "tts",
+    "eou_metrics": "eou",
+}
+
 def _prewarm(proc: JobProcess) -> None:
     """
     Runs once per idle process before any job is assigned.
@@ -55,6 +64,13 @@ def _prewarm(proc: JobProcess) -> None:
 
 server.setup_fnc = _prewarm
 
+def _extract_duration_ms(m) -> float | None:
+    for field in ("duration", "ttft", "ttfb", "end_of_utterance_delay"):
+        val = getattr(m, field, None)
+        if isinstance(val, (int, float)):
+            return round(val * 1000, 1)
+    return None
+
 def _metrics_to_dict(m) -> dict:
     """
     Best-effort conversion of a metrics object to a JSON-serializable dict.
@@ -67,9 +83,6 @@ def _metrics_to_dict(m) -> dict:
 
 
 def _attach_metrics(session: AgentSession, ctx: JobContext) -> None:
-    """
-    Collect LiveKit session metrics and log structured usage on shutdown.
-    """
     usage_collector = metrics.UsageCollector()
 
     def _on_metrics_collected(ev) -> None:
@@ -78,7 +91,6 @@ def _attach_metrics(session: AgentSession, ctx: JobContext) -> None:
             metrics.log_metrics(m)
         except Exception:
             logger.debug("metrics.log_metrics failed", exc_info=True)
-
         try:
             usage_collector.collect(m)
         except Exception:
@@ -92,6 +104,22 @@ def _attach_metrics(session: AgentSession, ctx: JobContext) -> None:
                 "metrics": _metrics_to_dict(m),
             },
         )
+
+        metric_type = getattr(m, "type", type(m).__name__)
+        label = _METRIC_LABELS.get(metric_type) or _METRIC_LABELS.get(type(m).__name__.lower())
+        duration_ms = _extract_duration_ms(m)
+        if label and duration_ms is not None:
+            payload = json.dumps({"metric": label, "duration_ms": duration_ms})
+            try:
+                asyncio.create_task(
+                    ctx.room.local_participant.publish_data(
+                        payload.encode("utf-8"),
+                        reliable=True,
+                        topic="agent-metrics",
+                    )
+                )
+            except Exception:
+                logger.debug("publish_data for metrics failed", exc_info=True)
 
     def _on_session_usage_updated(ev) -> None:
         usage = getattr(ev, "usage", None)
@@ -138,16 +166,30 @@ async def entrypoint(ctx: JobContext):
             prompt="Common Indian names: Agarwal, Sharma, Gupta, Kumar, Reddy, Iyer, Patel, Nair, Chatterjee, Bhatt, Rajasthan, Kota, Jaipur, Udaipur, CBC, lipid profile, thyroid panel",
         ),
         llm=google.LLM(
-            model=settings.llm_model,
-            api_key=settings.google_api_key.get_secret_value() if settings.google_api_key else None,
-        ),
+                model=settings.llm_model,
+                api_key=settings.google_api_key.get_secret_value() if settings.google_api_key else None,
+            ),
+        # 
+        # llm.FallbackAdapter(
+        #     llm=[
+        #         google.LLM(
+        #             model=settings.llm_model,
+        #             api_key=settings.google_api_key.get_secret_value() if settings.google_api_key else None,
+        #         ),
+        #         openai.LLM.with_openrouter(
+        #             model=settings.fallback_llm_model,
+        #             api_key=settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else None,
+        #         ),
+        #     ]
+        # ),
+        # 
         tts=PiperTTS(
             model_path="models/piper/en_US-ryan-high.onnx",
             use_cuda=False,
             speed=0.95,
         ),
         max_tool_steps=8,
-        user_away_timeout=15.0,
+        user_away_timeout=30.0,
         
         turn_handling=TurnHandlingOptions(
             turn_detection=inference.TurnDetector(),
@@ -186,11 +228,11 @@ def _attach_inactivity_handler(session: AgentSession, userdata: UserData) -> Non
     async def check_if_user_present() -> None:
         userdata.followup_attempts += 1
         await session.say(pick(FOLLOWUP_LINES_FIRST))
-        await asyncio.sleep(8)
+        await asyncio.sleep(15)
 
         userdata.followup_attempts += 1
         await session.say(pick(FOLLOWUP_LINES_SECOND))
-        await asyncio.sleep(8)
+        await asyncio.sleep(15)
 
         await session.say(pick(CLOSING_LINES), allow_interruptions=False)
         session.shutdown()

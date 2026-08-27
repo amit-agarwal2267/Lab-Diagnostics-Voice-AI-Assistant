@@ -182,6 +182,7 @@ async def resolve_home_visit_centre(
 
     context.userdata.centre_uuid = centre["uuid"]
     context.userdata.centre_name = centre["name"]
+    context.userdata.mode_of_sample_collection = "Home Visit"
     return f"Home visit will be served by {centre['name']} ({centre['city']})."
 
 @function_tool
@@ -247,6 +248,8 @@ async def check_prescription_requirement(
 ) -> str:
     """
     Check whether any of the requested lab tests require a prescription, and return each test's pre-test instructions (e.g. fasting requirements). Call this after a centre has been selected.
+
+    Accepts common short names and abbreviations (CBC, HbA1c, LFT, KFT, TSH, etc.) as well as full names — pass exactly what the caller said; do not ask them to expand abbreviations unless the lookup returns unknown.
     """
     if not test_names:
         return "No test names provided. Ask the caller which tests they need."

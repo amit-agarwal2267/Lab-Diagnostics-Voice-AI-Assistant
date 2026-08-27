@@ -27,6 +27,35 @@ services:
       - pgdata:/var/lib/postgresql/data
     env_file:
       - .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lab_admin} -d ${POSTGRES_DB:-lab_diagnostics}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file:
+      - .env
+    environment:
+      API_HOST: "0.0.0.0"
+      API_PORT: "8000"
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LIVEKIT_API_URL: ${LIVEKIT_API_URL:-http://livekit-server:7880}
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+      DB_URL: postgresql://${POSTGRES_USER:-lab_admin}:${POSTGRES_PASSWORD:-lab_password}@postgres:5432/${POSTGRES_DB:-lab_diagnostics}
+      FRONTEND_URL: ${FRONTEND_URL:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      livekit-server:
+        condition: service_started
 
 volumes:
   pgdata:

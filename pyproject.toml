@@ -6,10 +6,12 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.19.1",
+    "fastapi>=0.141.1",
     "livekit-agents>=1.7.0",
     "livekit-plugins-google>=1.7.0",
     "livekit-plugins-groq>=1.7.0",
     "livekit-plugins-noise-cancellation>=0.3.0",
+    "livekit-plugins-openai>=1.7.0",
     "livekit-plugins-silero>=1.7.0",
     "local-livekit-plugins",
     "psycopg2-binary>=2.9.12",

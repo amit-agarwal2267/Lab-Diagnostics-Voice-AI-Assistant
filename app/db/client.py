@@ -14,11 +14,29 @@ def get_connection():
     )
 
 def get_test_info(test_name: str) -> dict:
+    """
+    Resolve a lab test by name. Accepts full names or common short forms
+    (e.g. "CBC", "HbA1c") via case-insensitive exact then substring match.
+    Prefers the shortest matching name when multiple rows contain the query.
+    """
+    q = (test_name or "").strip()
+    if not q:
+        raise ValueError("Unknown test: (empty)")
+
     with get_connection() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT uuid, test_name, price, requires_prescription, pre_test_instructions "
             "FROM lab_test WHERE test_name ILIKE %s",
-            (test_name,),
+            (q,),
+        )
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+
+        cur.execute(
+            "SELECT uuid, test_name, price, requires_prescription, pre_test_instructions "
+            "FROM lab_test WHERE test_name ILIKE %s ORDER BY length(test_name) ASC, test_name",
+            (f"%{q}%",),
         )
         row = cur.fetchone()
         if not row:
