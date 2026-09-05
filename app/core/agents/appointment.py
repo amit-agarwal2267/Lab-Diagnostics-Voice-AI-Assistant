@@ -8,8 +8,9 @@ from app.core.tools import (
     get_slots,
     select_slot,
     finalize_appointment,
-    offer_more_help, 
+    offer_more_help,
     close_call,
+    run_read_only_query,
 )
 
 
@@ -22,7 +23,8 @@ class AppointmentAgent(GuardedAgent):
                 get_slots,
                 select_slot,
                 finalize_appointment,
-                offer_more_help, 
+                run_read_only_query,
+                offer_more_help,
                 close_call,
             ],
             chat_ctx=chat_ctx,

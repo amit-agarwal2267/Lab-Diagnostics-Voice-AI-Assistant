@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     groq_api_key: Optional[SecretStr] = Field(None, alias="GROQ_API_KEY")
 
     llm_model: str = Field("gemini-3.5-flash-lite", alias="LLM_MODEL")        # Only google models
-    fallback_llm_model: str = Field("gemini-3.5-flash-lite", alias="FALLBACK_LLM_MODEL")        # Only openrouter models
+    fallback_llm_model: str = Field("openai/gpt-oss-20b", alias="FALLBACK_LLM_MODEL")        # Only groq models
     stt_model: str = Field("whisper-large-v3-turbo", alias="STT_MODEL")       # Only groq models
     tts_model_path: str = Field(
         "models/piper/en_US-ryan-high.onnx", alias="TTS_MODEL_PATH"           # Stored voice model

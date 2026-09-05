@@ -5,6 +5,7 @@ from livekit.agents.llm import function_tool
 from livekit.agents.voice import RunContext
 from app.core.state import UserData
 from app.db.client import (
+    execute_read_only_query,
     get_test_info,
     search_lab_tests,
     search_centres,
@@ -107,6 +108,32 @@ def _normalize_slot_date(date: str) -> str:
 
 @function_tool
 @_safe_tool
+async def run_read_only_query(
+    context: RunContext[UserData],
+    query: str,
+    params: list[Any] | None = None,
+) -> str:
+    """
+    Execute a read-only SQL query for data lookup and research.
+
+    IMPORTANT: this tool is strictly restricted to SELECT and WITH statements only.
+    No INSERT, UPDATE, DELETE, DROP, CREATE, ALTER, or other write operations are allowed.
+
+    To support typo-tolerant searches, prefer ILIKE or dmetaphone() in the SQL when the caller may have misspelled a name or city.
+    Example: "SELECT * FROM patient WHERE name ILIKE %s" or "SELECT * FROM patient WHERE dmetaphone(name) = dmetaphone(%s)".
+    """
+    if not query or not str(query).strip():
+        return "No SQL query provided. Ask the caller for the lookup they want to run."
+
+    rows = execute_read_only_query(str(query), params or [])
+    if not rows:
+        return "No results found for that query."
+
+    preview = rows[:20]
+    return str(preview)
+
+@function_tool
+@_safe_tool
 async def find_centres(
     context: RunContext[UserData],
     pincode: str | None = None,
@@ -162,9 +189,13 @@ async def resolve_home_visit_centre(
     context: RunContext[UserData],
 ) -> str:
     """
-    Automatically find and record the servicing centre for a HOME VISIT collection, using the caller's pincode (preferred, more precise) or city. The caller never needs to know or choose a centre for a home visit this just resolves it behind the scenes. Call this only when mode_of_sample_collection is "Home Visit".
+    Resolve a HOME VISIT service centre using the most precise information available.
 
-    Returns NO_SERVICE_IN_AREA if nothing supports home visits there tell the caller we don't currently service that area and are still expanding, then offer to raise a general ticket or suggest Visit Center instead.
+    Behaviour:
+    - If a pincode is supplied, try that first.
+    - If no pincode is supplied, try the city match and then offer the user a choice when multiple centres are available.
+    - If only one serviceable pincode exists in the city, confirm that pincode and ask the user to confirm the collection mode.
+    - If multiple serviceable pincodes exist, ask whether they want to provide a pincode for the nearest one or let us choose one from the list.
     """
     centre = None
     if pincode:
@@ -172,10 +203,30 @@ async def resolve_home_visit_centre(
         if matches:
             centre = matches[0]
 
-    if not centre:
+    if not centre and city:
         matches = search_centres(city=city, requires_home_visit=True)
-        if matches:
+        if not matches:
+            return "NO_SERVICE_IN_AREA"
+
+        unique_pincodes = sorted({m["pincode"] for m in matches if m.get("pincode")})
+        if len(unique_pincodes) == 1:
             centre = matches[0]
+            context.userdata.centre_uuid = centre["uuid"]
+            context.userdata.centre_name = centre["name"]
+            context.userdata.mode_of_sample_collection = "Home Visit"
+            return (
+                f"We have a home visit centre in {city} at pincode {centre['pincode']}. "
+                "If you want to visit our centre instead, kindly confirm whether you prefer home visit or visit center."
+            )
+
+        if len(unique_pincodes) > 1:
+            pincode_list = ", ".join(unique_pincodes[:5])
+            if len(unique_pincodes) > 5:
+                pincode_list += f", and {len(unique_pincodes) - 5} more"
+            return (
+                f"I can see {len(unique_pincodes)} centre(s) available in {city} with pincodes: {pincode_list}. "
+                "Would you like to share a pincode for the nearest one, or would you like me to choose a pincode for you from this list?"
+            )
 
     if not centre:
         return "NO_SERVICE_IN_AREA"

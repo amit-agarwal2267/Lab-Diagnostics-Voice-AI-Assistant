@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from datetime import datetime, timedelta, UTC
 import psycopg2
@@ -12,6 +13,45 @@ def get_connection():
         settings.db_url.get_secret_value(),
         cursor_factory=psycopg2.extras.RealDictCursor,
     )
+
+_READ_ONLY_SQL_RE = re.compile(
+    r"^\s*(SELECT|WITH)\b",
+    re.IGNORECASE,
+)
+
+_BLOCKED_SQL_RE = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|MERGE|CALL|EXEC|COPY|ATTACH|DETACH)\b",
+    re.IGNORECASE,
+)
+
+
+def execute_read_only_query(sql: str, params: list | tuple | None = None) -> list[dict]:
+    """
+    Executes a read-only SQL query only.
+
+    This function explicitly blocks all write operations:
+    INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, GRANT, REVOKE,
+    MERGE, CALL, EXEC, COPY, ATTACH, and DETACH.
+
+    For fuzzy matching, SQL can use ILIKE or dmetaphone() in the query text.
+    Example: "SELECT * FROM patient WHERE name ILIKE %s" or
+    "SELECT * FROM patient WHERE dmetaphone(name) = dmetaphone(%s)".
+    """
+    if not sql or not str(sql).strip():
+        raise ValueError("No SQL query provided.")
+
+    normalized = " ".join(str(sql).split())
+    if ";" in normalized:
+        raise ValueError("Only a single read-only statement is allowed. Chained statements are not permitted.")
+    if not _READ_ONLY_SQL_RE.match(normalized):
+        raise ValueError("Only SELECT or WITH queries are allowed. INSERT, UPDATE, DELETE and other write operations are blocked.")
+    if _BLOCKED_SQL_RE.search(normalized):
+        raise ValueError("Write operations are not allowed. Only read-only queries are permitted.")
+
+    with get_connection() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(normalized, params or ())
+        return [dict(row) for row in cur.fetchall()]
+
 
 def get_test_info(test_name: str) -> dict:
     """

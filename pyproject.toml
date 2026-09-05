@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.19.1",
     "fastapi>=0.141.1",
     "livekit-agents>=1.7.0",
+    "livekit-plugins-dtln>=0.1.5",
     "livekit-plugins-google>=1.7.0",
     "livekit-plugins-groq>=1.7.0",
     "livekit-plugins-noise-cancellation>=0.3.0",

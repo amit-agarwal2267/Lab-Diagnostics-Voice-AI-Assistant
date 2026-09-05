@@ -76,3 +76,29 @@ def test_supervisor_exposes_handoffs():
     assert hasattr(agent, "handoff_to_appointment")
     assert hasattr(agent, "handoff_to_report_status")
     assert hasattr(agent, "handoff_to_ticket")
+
+
+def test_check_medical_guardrail_blocks_clinical_advice_requests():
+    from app.core.guardrails import DEFLECTION_MESSAGE, check_medical_guardrail
+
+    clinical_questions = [
+        "Should I take a CBC test after my surgery?",
+        "Is it safe to do a blood test without a doctor?",
+        "Can I get checked for cancer and book a test tomorrow?",
+    ]
+
+    for question in clinical_questions:
+        assert check_medical_guardrail(question) == DEFLECTION_MESSAGE
+
+
+def test_check_medical_guardrail_allows_booking_requests_without_medical_advice():
+    from app.core.guardrails import check_medical_guardrail
+
+    booking_questions = [
+        "I want to book a CBC test",
+        "What is the price of the lipid profile?",
+        "Which centre is available for a home visit?",
+    ]
+
+    for question in booking_questions:
+        assert check_medical_guardrail(question) is None

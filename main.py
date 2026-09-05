@@ -21,7 +21,8 @@ from app.core.closing import (
     FOLLOWUP_LINES_SECOND, 
     CLOSING_LINES,
 )
-from livekit.plugins import noise_cancellation, groq, google, openai
+from livekit.plugins import noise_cancellation, groq, google, silero
+from livekit.plugins.turn_detector.multilingual import MultilingualModel
 from app.core.state import UserData
 from app.core.agents.supervisor import SupervisorAgent
 from local_livekit_plugins import PiperTTS
@@ -158,31 +159,32 @@ async def entrypoint(ctx: JobContext):
     logger.info("Job started", extra={"room": ctx.room.name})
 
     session = AgentSession[UserData](
+        vad=silero.VAD.load(min_speech_duration=0.3, min_silence_duration=0.4),
         userdata=UserData(),
         stt=groq.STT(
             model=settings.stt_model,
             api_key=settings.groq_api_key.get_secret_value() if settings.groq_api_key else None,
             language="en",
-            prompt="Common Indian names: Agarwal, Sharma, Gupta, Kumar, Reddy, Iyer, Patel, Nair, Chatterjee, Bhatt, Rajasthan, Kota, Jaipur, Udaipur, CBC, lipid profile, thyroid panel",
-        ),
-        llm=google.LLM(
-                model=settings.llm_model,
-                api_key=settings.google_api_key.get_secret_value() if settings.google_api_key else None,
+            prompt=(
+                "Common Indian names: Agarwal, Sharma, Gupta, Kumar, Reddy, Iyer, Patel, "
+                "Nair, Chatterjee, Bhatt, Rajasthan, Kota, Jaipur, Udaipur, CBC, lipid profile, "
+                "thyroid panel. Appointment options: Home visit, Visit Center, Home, Center. "
+                "Payment: UPI, Cash on Visit."
             ),
-        # 
-        # llm.FallbackAdapter(
-        #     llm=[
-        #         google.LLM(
-        #             model=settings.llm_model,
-        #             api_key=settings.google_api_key.get_secret_value() if settings.google_api_key else None,
-        #         ),
-        #         openai.LLM.with_openrouter(
-        #             model=settings.fallback_llm_model,
-        #             api_key=settings.openrouter_api_key.get_secret_value() if settings.openrouter_api_key else None,
-        #         ),
-        #     ]
-        # ),
-        # 
+        ),
+        llm=llm.FallbackAdapter(
+            llm=[
+                groq.LLM(
+                    model=settings.fallback_llm_model,
+                    api_key=settings.groq_api_key.get_secret_value() if settings.groq_api_key else None,
+                ),
+                google.LLM(
+                    model=settings.llm_model,
+                    api_key=settings.google_api_key.get_secret_value() if settings.google_api_key else None,
+                ),
+            ]
+        ),
+        
         tts=PiperTTS(
             model_path="models/piper/en_US-ryan-high.onnx",
             use_cuda=False,
@@ -192,7 +194,7 @@ async def entrypoint(ctx: JobContext):
         user_away_timeout=30.0,
         
         turn_handling=TurnHandlingOptions(
-            turn_detection=inference.TurnDetector(),
+            turn_detection=MultilingualModel(),
             endpointing={
                 "mode": "dynamic",
                 "min_delay": 0.8,
